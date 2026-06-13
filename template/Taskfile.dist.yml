@@ -67,6 +67,7 @@ tasks:
       - uv sync
       - echo "🔒 Installing pre-commit hooks..."
       - uv tool list | grep -q pre-commit || uv tool install pre-commit
+      - git rev-parse --git-dir >/dev/null 2>&1 || git init -b main
       - uv run pre-commit install
 
   install:

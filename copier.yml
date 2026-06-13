@@ -171,6 +171,8 @@ _message_after_copy: |
   {% endif %}
 
 _tasks:
+  # Make the generated project a git repo so pre-commit (and copier update) work.
+  - "git rev-parse --git-dir >/dev/null 2>&1 || git init -b main"
   - "uv sync"
   - command: "mkdir -p .claude && ln -sfn ../.agents/skills .claude/skills"
     when: "{{ include_skills }}"
