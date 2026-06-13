@@ -1,8 +1,8 @@
-# kit-template
+# ProjectKit Template
 
 A single [Copier](https://copier.readthedocs.io/) template for **both** project archetypes —
 Python-only services/libraries **and** reflex.dev / AppKit web apps — chosen by a
-`project_type` question. Replaces the separate `python-kit` / `projectkit` GitHub templates
+`project_type` question. Replaces GitHub templates
 with one **updateable** template (`copier update`).
 
 ```bash
@@ -11,7 +11,30 @@ copier copy --trust gh:jenreh/kit-template my-project
 cd my-project && task init
 ```
 
-`--trust` is required (post-gen tasks run `uv sync` and wire `.claude/skills`).
+`--trust` is required (post-gen tasks run `uv sync` and, when `include_skills`, vendor
+`jenreh/agent-skills` as a git subtree and wire `.agents/skills` + `.claude/skills`).
+
+## `projectkit` shell helper (optional)
+
+Drop this in your `~/.zshrc` so `projectkit my-project` scaffolds from this template
+(an explicit template ref is passed through; anything else is treated as the destination):
+
+```zsh
+projectkit() {
+  local default="gh:jenreh/kit-template"
+  local tmpl
+
+  case "$1" in
+#    py)  tmpl="gh:jenreh/kit-template"; shift ;;
+#    web) tmpl="gh:jenreh/web-template"; shift ;;
+    gh:*|git+*|https://*|/*|.*)         # explicit ref → consume it
+         tmpl="$1"; shift ;;
+    *)   tmpl="$default" ;;             # anything else → default, keep $1 as dest
+  esac
+
+  copier copy --trust "$tmpl" "$@"
+}
+```
 
 ## Questions
 
@@ -23,19 +46,24 @@ cd my-project && task init
 | `project_description` | auto | |
 | `author_name` / `github_owner` | jenreh | |
 | `python_version` | 3.14 | sets `requires-python` + ruff target |
-| `include_db` | false | python: adds SQL deps. reflex: full DB layer (alembic) is always on |
+| `include_db` | false | adds SQL deps **+ Alembic** (pure `env.py`). reflex always includes the DB layer (appkit `env.py`) |
 | `db_name` | `{{ project_name }}-db` | asked for reflex / python+db |
-| `use_devcontainer` | true | reflex only |
-| `include_docker` | reflex→true | Dockerfile+compose (reflex) / docker task |
-| `include_terraform` | false | `terraform/` + azure task |
-| `include_docs` | python→true | VitePress `docs/` scaffold |
+| `use_devcontainer` | true | any project type (db service included only when there's a DB) |
+| `include_docker` | reflex→true | Dockerfile+compose (reflex) / docker task; ships `.dockerignore` |
+| `include_terraform` | false | `terraform/` scaffold + cloud deploy task |
+| `cloud_provider` | `azure` | asked when `include_terraform`; `azure` or `aws` (picks `deploy-azure.sh`/`deploy-aws.sh`) |
+| `include_docs` | python→true | VitePress `docs/` scaffold (templated `index.md` / `config.mts`) |
 | `include_graph` | false | GraphDB / runic hooks (see note) |
-| `include_skills` | true | vendor `jenreh/agent-skills` into `.agents/skills` |
+| `include_skills` | true | install `jenreh/agent-skills` (git subtree → `.agents/agent-skills`, symlinked to `.agents/skills` + `.claude/skills`) |
+| `create_github_repo` | false | post-gen `gh repo create … --source=. --push` (needs authenticated `gh`) |
+| `github_visibility` | `private` | asked when `create_github_repo`; `private` or `public` |
 
 ## How it works
 
 - **Shared base** is always generated (pyproject, ruff/mypy/pytest, pre-commit, gitleaks,
-  AGENTS/CLAUDE, terraform, `qa`/`release` tasks, `.agents/skills`).
+  AGENTS/CLAUDE, `qa`/`release` tasks). When `include_skills` is on, a post-gen
+  task vendors `jenreh/agent-skills` as a git subtree (it is not copied from the template).
+  When `create_github_repo` is on, a final post-gen task commits and runs `gh repo create`.
 - **`project_type: reflex`** adds the reflex layer: `app/`, `alembic/`, `rxconfig.py`,
   `docker-compose.yml`, `configuration/`, `assets/`, `components/`, `.devcontainer/`,
   `Dockerfile`, reflex deps, `Taskfile.reflex.yml`.
@@ -43,7 +71,7 @@ cd my-project && task init
   - **Files** via Copier's templated `_exclude` (a pattern renders to `""` — matches
     nothing — when its feature is on).
   - **Taskfile includes** are all marked `optional: true` in `Taskfile.dist.yml`, so go-task
-    silently skips any `tasks/Taskfile.*.yml` the template didn't ship. You only get the task
+    silently skips any `taskfiles/Taskfile.*.yml` the template didn't ship. You only get the task
     namespaces (`db:`, `docker:`, `dev:`/`prod:`, `reflex:`) for components you selected.
 - The python package lives in a whole-segment conditional directory that vanishes for reflex;
   reflex's `app/` is excluded for python.
@@ -52,12 +80,24 @@ cd my-project && task init
 
 - `Taskfile*.yml` are **not** Jinja-rendered (go-task `{{.VAR}}` would collide); `PROJECT` is
   derived from `pyproject.toml` at runtime.
-- **`include_graph`**: the runic skills are vendored, but the PyPI package named `runic` is
-  **unrelated** to the graph migration tool — add your graph `runic` from its own source/index
-  and pin it in `pyproject.toml`.
+- **`include_graph`**: adds `runic-py` (graph schema migrations + OGM for Cypher DBs) to
+  dependencies and surfaces the `runic-*` skills in AGENTS.md (the skills themselves ship in
+  the `agent-skills` subtree when `include_skills` is on). (Note: `include_graph` relaxes the
+  `typer` pin to `>=0.26.0`, which `runic-py` requires.)
+- **Alembic** works for both archetypes: `alembic/env.py` is rendered as the appkit-coupled
+  variant for reflex, or a pure SQLAlchemy variant (reads `$DATABASE_URL` / `alembic.ini`) for
+  Python — so `task db:*` is usable in both.
 - `task test` for **reflex** needs Postgres + `.env` secrets (the app boots against a DB).
+- **`include_terraform`**: ships the `terraform/` scaffold. `cloud_provider` selects which
+  deploy script is kept (`deploy-azure.sh` or `deploy-aws.sh`); the provider Taskfile
+  self-gates via its conditional filename, so only the unused deploy script is excluded.
+- **`.dockerignore`** ships whenever `include_docker` is on; its contents branch on
+  `project_type` (reflex `.web`/build artifacts vs. plain Python).
 
 ## Maintainers
 
-Refresh the bundled skills snapshot with `scripts/sync-skills.sh`, then commit + tag a new
-version (generated projects pull it via `copier update`).
+Skills are no longer vendored into this template. They live in
+[`jenreh/agent-skills`](https://github.com/jenreh/agent-skills) and are installed into each
+generated project as a git subtree by a post-gen task (`scripts/add-skills.sh`, run via the
+upstream one-liner). To change the skill set, edit the upstream repo — generated projects
+update with `git subtree pull` (see the post-gen message). No snapshot to refresh here.

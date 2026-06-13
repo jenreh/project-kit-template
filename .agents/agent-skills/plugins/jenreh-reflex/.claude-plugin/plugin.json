@@ -1,0 +1,7 @@
+{
+  "name": "jenreh-reflex",
+  "description": "reflex.dev / AppKit web skills (appkit-*, reflex-*).",
+  "version": "0.1.0",
+  "author": { "name": "Jens Rehpöhler" },
+  "license": "MIT"
+}

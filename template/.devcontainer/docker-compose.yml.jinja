@@ -1,0 +1,41 @@
+services:
+  app:
+    container_name: {{ project_name }}-dev
+    image: {{ project_name }}/ui-dev
+    build:
+      context: ..
+      dockerfile: .devcontainer/Dockerfile
+      args:
+        VARIANT: 3.13-bookworm
+    volumes:
+      - ../..:/workspaces:rw,cached
+    command: sleep infinity
+    networks:
+      - {{ project_name }}-network
+{%- if project_type == 'reflex' or include_db %}
+
+  db:
+    container_name: {{ project_name }}-dev-db
+    image: pgvector/pgvector:pg15
+    restart: unless-stopped
+    volumes:
+      - dev-postgres-data:/var/lib/postgresql/data
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_DB: {{ db_name }}
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - 5434:5432
+    networks:
+      - {{ project_name }}-network
+{%- endif %}
+
+networks:
+  {{ project_name }}-network:
+    driver: bridge
+{%- if project_type == 'reflex' or include_db %}
+
+volumes:
+  dev-postgres-data:
+    name: {{ project_name }}-dev-postgres-data
+{%- endif %}

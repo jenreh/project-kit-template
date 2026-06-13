@@ -1,0 +1,230 @@
+_subdirectory: template
+_templates_suffix: .jinja
+_preserve_symlinks: true
+_envops:
+  keep_trailing_newline: true
+
+# ─── Questions ────────────────────────────────────────────────────────────────
+
+project_name:
+  type: str
+  help: Project / distribution name (kebab-case, e.g. voyager)
+
+project_type:
+  type: str
+  help: What kind of project is this?
+  choices:
+    "Python-only (CLI / library / service)": python
+    "reflex.dev / AppKit web app": reflex
+  default: python
+
+package_name:
+  type: str
+  help: Python import package (snake_case)
+  default: "{{ project_name.replace('-', '_') }}"
+  when: "{{ project_type == 'python' }}"
+  validator: >-
+    {% if project_type == 'python' and package_name == 'app' %}
+    package_name cannot be 'app' for a Python project (collides with the reflex app dir)
+    {% endif %}
+
+project_description:
+  type: str
+  help: One-line project description
+  default: "A {{ 'reflex.dev / AppKit web' if project_type == 'reflex' else 'Python' }} application."
+
+author_name:
+  type: str
+  default: Jens Rehpöhler
+
+github_owner:
+  type: str
+  default: jenreh
+
+python_version:
+  type: str
+  default: "3.14"
+
+include_db:
+  type: bool
+  help: Add SQL database deps (sqlalchemy/alembic/psycopg). Reflex always includes the full DB layer.
+  default: false
+  when: "{{ project_type == 'python' }}"
+
+db_name:
+  type: str
+  help: Postgres database name
+  default: "{{ project_name }}-db"
+  when: "{{ project_type == 'reflex' or include_db }}"
+
+use_devcontainer:
+  type: bool
+  help: Include the .devcontainer/ setup (works for any project type)
+  default: true
+
+include_docker:
+  type: bool
+  help: Include Docker tooling (Dockerfile + compose for reflex; docker task otherwise)
+  default: "{{ project_type == 'reflex' }}"
+
+include_terraform:
+  type: bool
+  help: Include the terraform/ scaffold + cloud deploy task
+  default: false
+
+cloud_provider:
+  type: str
+  help: Which cloud should the terraform scaffold target?
+  choices:
+    Azure: azure
+    AWS: aws
+  default: azure
+  when: "{{ include_terraform }}"
+
+include_docs:
+  type: bool
+  help: Include the VitePress docs/ site scaffold
+  default: "{{ project_type == 'python' }}"
+
+include_graph:
+  type: bool
+  help: Add GraphDB / runic-py (graph schema migrations + OGM for Cypher DBs)
+  default: false
+
+include_skills:
+  type: bool
+  help: Install jenreh/agent-skills (git subtree -> .agents/agent-skills) and wire .agents/skills + .claude/skills
+  default: true
+
+create_github_repo:
+  type: bool
+  help: Create the project as a GitHub repo and push the initial commit (needs an authenticated `gh`)
+  default: false
+
+github_visibility:
+  type: str
+  help: Visibility for the new GitHub repo
+  choices:
+    Private: private
+    Public: public
+  default: private
+  when: "{{ create_github_repo }}"
+
+# ─── File selection ───────────────────────────────────────────────────────────
+# _exclude replaces Copier's defaults, so VCS/OS/build junk is re-listed first,
+# then each conditional pattern renders to "" (matches nothing) when its feature
+# is enabled. The python package lives in a whole-segment conditional directory
+# ({% raw %}{% if project_type == 'python' %}{{ package_name }}{% endif %}{% endraw %})
+# and vanishes for reflex, so it is not listed here.
+_exclude:
+  - "copier.yml"
+  - "copier.yaml"
+  - "~*"
+  - "*.py[co]"
+  - "__pycache__"
+  - ".git"
+  - ".svn"
+  - ".DS_Store"
+  - ".venv*"
+  - ".cache"
+  - ".coverage"
+  - "coverage.xml"
+  - "node_modules"
+  - ".web"
+  - ".states"
+  - "dist"
+  - ".pytest_cache"
+  - ".mypy_cache"
+  - ".ruff_cache"
+  # All conditional patterns are ROOT-ANCHORED (leading /) so they never catch a
+  # nested path of the same name (e.g. a nested taskfiles/, .devcontainer/Dockerfile).
+  # reflex-only layer
+  - "{% if project_type != 'reflex' %}/app{% endif %}"
+  - "{% if project_type != 'reflex' %}/rxconfig.py{% endif %}"
+  - "{% if project_type != 'reflex' %}/configuration{% endif %}"
+  - "{% if project_type != 'reflex' %}/assets{% endif %}"
+  - "{% if project_type != 'reflex' %}/components{% endif %}"
+  - "{% if project_type != 'reflex' %}/.env.default{% endif %}"
+  - "{% if project_type != 'reflex' %}/taskfiles/Taskfile.reflex.yml{% endif %}"
+  # github workflows: docker-publish ↔ include_docker; pypi-publish ↔ python libs
+  - "{% if not include_docker %}/.github/workflows/01_build_and_publish_docker_image.yml{% endif %}"
+  - "{% if project_type != 'python' %}/.github/workflows/02_publish_to_pypi.yml{% endif %}"
+  # python-only smoke test imports the python package
+  - "{% if project_type != 'python' %}/tests/test_smoke.py{% endif %}"
+  # database / alembic: shipped for reflex or python+include_db. env.py.jinja renders a
+  # reflex (appkit) or a pure variant, so Taskfile.db.yml works for both. The seeded
+  # appkit migration is reflex-only.
+  - "{% if not (project_type == 'reflex' or include_db) %}/alembic{% endif %}"
+  - "{% if not (project_type == 'reflex' or include_db) %}/alembic.ini{% endif %}"
+  - "{% if not (project_type == 'reflex' or include_db) %}/taskfiles/Taskfile.db.yml{% endif %}"
+  - "{% if project_type != 'reflex' %}/alembic/versions/2025_12_30_appkit_user_0.10.0.py{% endif %}"
+  # docker (root files only; .devcontainer/ Dockerfile + compose are separate)
+  - "{% if not include_docker %}/taskfiles/Taskfile.docker.yml{% endif %}"
+  - "{% if not (project_type == 'reflex' and include_docker) %}/Dockerfile{% endif %}"
+  - "{% if not (project_type == 'reflex' and include_docker) %}/docker-compose.yml{% endif %}"
+  # .dockerignore ships for any include_docker (its contents branch on project_type).
+  - "{% if not include_docker %}/.dockerignore{% endif %}"
+  # devcontainer (available for any project type)
+  - "{% if not use_devcontainer %}/.devcontainer{% endif %}"
+  # terraform — the taskfiles/ provider Taskfile self-gates via its conditional
+  # filename, so only the unused deploy-*.sh needs an explicit exclude here.
+  - "{% if not include_terraform %}/terraform{% endif %}"
+  - "{% if not (include_terraform and cloud_provider == 'azure') %}/terraform/deploy-azure.sh{% endif %}"
+  - "{% if not (include_terraform and cloud_provider == 'aws') %}/terraform/deploy-aws.sh{% endif %}"
+  # docs site
+  - "{% if not include_docs %}/docs{% endif %}"
+
+# ─── Post-generation ──────────────────────────────────────────────────────────
+
+_message_after_copy: |
+  Project "{{ project_name }}" ({{ project_type }}) created.
+  {% if create_github_repo %}
+  GitHub: {{ github_visibility }} repo pushed to
+  https://github.com/{{ github_owner }}/{{ project_name }} (if gh was authenticated).
+  {% else %}
+  Publish later with:
+    git add -A && git commit -m "init"
+    gh repo create {{ github_owner }}/{{ project_name }} --private --source=. --push
+  {% endif %}
+  Next:
+    cd {{ _copier_conf.dst_path }}
+    task init
+    {% if project_type == 'reflex' -%}
+    # reflex needs Postgres + secrets first:
+    #   cp .env.default .env  (set mn-db-* ; DB name: {{ db_name }})
+    #   start Postgres, create the DB, then: task db:upgrade && task run
+    {%- else -%}
+    task test
+    {%- endif %}
+  {% if include_skills %}
+  Skills: jenreh/agent-skills is vendored as a git subtree at .agents/agent-skills,
+  with .agents/skills (Codex/Copilot) and .claude/skills (Claude Code) symlinked to it.
+  Update later with:
+    git subtree pull --prefix .agents/agent-skills https://github.com/jenreh/agent-skills.git main --squash
+  {% endif %}
+  {% if include_graph %}
+  GraphDB: runic-py (graph migrations + OGM) is in your dependencies, and the
+  runic / runic-migrate / runic-ogm skills are vendored.
+  {% endif %}
+
+_tasks:
+  # Make the generated project a git repo so pre-commit (and copier update) work.
+  - "git rev-parse --git-dir >/dev/null 2>&1 || git init -b main"
+  - "uv sync"
+  # An initial commit is required before installing skills: add-skills.sh runs
+  # `git subtree add`, which refuses to run against a dirty tree or an empty repo.
+  # So we also commit when create_github_repo even without skills.
+  - command: "git add -A && git commit -q -m 'Initial commit from kit-template'"
+    when: "{{ include_skills or create_github_repo }}"
+  # Vendor jenreh/agent-skills via git subtree (-> .agents/agent-skills) and wire
+  # .agents/skills (Codex/Copilot) + .claude/skills (Claude Code). The installer
+  # makes its own commit. Override repo/branch via AGENT_SKILLS_REPO/_BRANCH.
+  - command: "curl -fsSL https://raw.githubusercontent.com/jenreh/agent-skills/main/scripts/add-skills.sh | bash"
+    when: "{{ include_skills }}"
+  # Optional: create the GitHub repo and push (requires `gh` auth).
+  - command: >-
+      gh repo create {{ github_owner }}/{{ project_name }} --{{ github_visibility }}
+      --source=. --remote=origin --push
+      || echo 'GitHub repo not created (is gh authenticated? does the repo already exist?).
+      Create it later with: gh repo create {{ github_owner }}/{{ project_name }} --{{ github_visibility }} --source=. --push'
+    when: "{{ create_github_repo }}"

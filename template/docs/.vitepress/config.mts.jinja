@@ -1,0 +1,29 @@
+import { defineConfig } from 'vitepress'
+
+// https://vitepress.dev/reference/site-config
+export default defineConfig({
+  title: "{{ project_name }}",
+  description: "{{ project_description }}",
+  themeConfig: {
+    // https://vitepress.dev/reference/default-theme-config
+    nav: [
+      { text: 'Home', link: '/' },
+      { text: 'Examples', link: '/markdown-examples' }
+    ],
+
+    sidebar: [
+      {
+        text: 'Examples',
+        items: [
+          { text: 'Markdown Examples', link: '/markdown-examples' },
+          { text: 'Runtime API Examples', link: '/api-examples' }
+        ]
+      }
+    ],
+{% if create_github_repo %}
+    socialLinks: [
+      { icon: 'github', link: 'https://github.com/{{ github_owner }}/{{ project_name }}' }
+    ]
+{% endif %}
+  }
+})
