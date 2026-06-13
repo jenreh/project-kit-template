@@ -56,7 +56,7 @@ dev = [
     "pytest-cov==7.1.0",
     "pytest-httpserver==1.1.5",
     "ruff==0.15.13",
-    "mypy==2.1.0",
+    "ty==0.0.49",
     "types-PyYAML==6.0.12.20260510",
 ]
 
@@ -245,21 +245,24 @@ markers = [
     "sonos_live: requires real Sonos hardware on the network",
 ]
 
-[tool.mypy]
-cache_dir = ".cache/mypy"
-disallow_untyped_defs = true
-incremental = true
-python_version = "3.14"
-warn_return_any = true
-warn_unused_configs = true
-ignore_missing_imports = true
+# Type checking with `ty` (Astral). Run via `task typecheck` (uv run ty check).
+[tool.ty.environment]
+python-version = "{{ python_version }}"
+
+[tool.ty.src]
 exclude = [
+    ".agents",
     ".cache",
     ".claude",
     ".venv",
     "build",
     "dist",
 ]
+
+# Treat unresolved third-party imports as errors-off-by-default like mypy's
+# ignore_missing_imports; ty resolves imports from the project venv instead.
+[tool.ty.rules]
+unresolved-import = "warn"
 
 [tool.coverage.run]
 branch = true
