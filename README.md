@@ -1,8 +1,8 @@
-# kit-template
+# ProjectKit Template
 
 A single [Copier](https://copier.readthedocs.io/) template for **both** project archetypes —
 Python-only services/libraries **and** reflex.dev / AppKit web apps — chosen by a
-`project_type` question. Replaces the separate `python-kit` / `projectkit` GitHub templates
+`project_type` question. Replaces GitHub templates
 with one **updateable** template (`copier update`).
 
 ```bash
@@ -13,6 +13,28 @@ cd my-project && task init
 
 `--trust` is required (post-gen tasks run `uv sync` and, when `include_skills`, vendor
 `jenreh/agent-skills` as a git subtree and wire `.agents/skills` + `.claude/skills`).
+
+## `projectkit` shell helper (optional)
+
+Drop this in your `~/.zshrc` so `projectkit my-project` scaffolds from this template
+(an explicit template ref is passed through; anything else is treated as the destination):
+
+```zsh
+projectkit() {
+  local default="gh:jenreh/kit-template"
+  local tmpl
+
+  case "$1" in
+#    py)  tmpl="gh:jenreh/kit-template"; shift ;;
+#    web) tmpl="gh:jenreh/web-template"; shift ;;
+    gh:*|git+*|https://*|/*|.*)         # explicit ref → consume it
+         tmpl="$1"; shift ;;
+    *)   tmpl="$default" ;;             # anything else → default, keep $1 as dest
+  esac
+
+  copier copy --trust "$tmpl" "$@"
+}
+```
 
 ## Questions
 
@@ -27,17 +49,21 @@ cd my-project && task init
 | `include_db` | false | adds SQL deps **+ Alembic** (pure `env.py`). reflex always includes the DB layer (appkit `env.py`) |
 | `db_name` | `{{ project_name }}-db` | asked for reflex / python+db |
 | `use_devcontainer` | true | any project type (db service included only when there's a DB) |
-| `include_docker` | reflex→true | Dockerfile+compose (reflex) / docker task |
-| `include_terraform` | false | `terraform/` + azure task |
-| `include_docs` | python→true | VitePress `docs/` scaffold |
+| `include_docker` | reflex→true | Dockerfile+compose (reflex) / docker task; ships `.dockerignore` |
+| `include_terraform` | false | `terraform/` scaffold + cloud deploy task |
+| `cloud_provider` | `azure` | asked when `include_terraform`; `azure` or `aws` (picks `deploy-azure.sh`/`deploy-aws.sh`) |
+| `include_docs` | python→true | VitePress `docs/` scaffold (templated `index.md` / `config.mts`) |
 | `include_graph` | false | GraphDB / runic hooks (see note) |
 | `include_skills` | true | install `jenreh/agent-skills` (git subtree → `.agents/agent-skills`, symlinked to `.agents/skills` + `.claude/skills`) |
+| `create_github_repo` | false | post-gen `gh repo create … --source=. --push` (needs authenticated `gh`) |
+| `github_visibility` | `private` | asked when `create_github_repo`; `private` or `public` |
 
 ## How it works
 
 - **Shared base** is always generated (pyproject, ruff/mypy/pytest, pre-commit, gitleaks,
-  AGENTS/CLAUDE, terraform, `qa`/`release` tasks). When `include_skills` is on, a post-gen
+  AGENTS/CLAUDE, `qa`/`release` tasks). When `include_skills` is on, a post-gen
   task vendors `jenreh/agent-skills` as a git subtree (it is not copied from the template).
+  When `create_github_repo` is on, a final post-gen task commits and runs `gh repo create`.
 - **`project_type: reflex`** adds the reflex layer: `app/`, `alembic/`, `rxconfig.py`,
   `docker-compose.yml`, `configuration/`, `assets/`, `components/`, `.devcontainer/`,
   `Dockerfile`, reflex deps, `Taskfile.reflex.yml`.
@@ -62,6 +88,11 @@ cd my-project && task init
   variant for reflex, or a pure SQLAlchemy variant (reads `$DATABASE_URL` / `alembic.ini`) for
   Python — so `task db:*` is usable in both.
 - `task test` for **reflex** needs Postgres + `.env` secrets (the app boots against a DB).
+- **`include_terraform`**: ships the `terraform/` scaffold. `cloud_provider` selects which
+  deploy script is kept (`deploy-azure.sh` or `deploy-aws.sh`); the provider Taskfile
+  self-gates via its conditional filename, so only the unused deploy script is excluded.
+- **`.dockerignore`** ships whenever `include_docker` is on; its contents branch on
+  `project_type` (reflex `.web`/build artifacts vs. plain Python).
 
 ## Maintainers
 
