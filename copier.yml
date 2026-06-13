@@ -43,6 +43,13 @@ github_owner:
 
 python_version:
   type: str
+  help: Python version (major.minor) — kept as a string so 3.1 and 3.10 never collide
+  choices:
+    "3.15": "3.15"
+    "3.14": "3.14"
+    "3.13": "3.13"
+    "3.12": "3.12"
+    "3.11": "3.11"
   default: "3.14"
 
 include_db:
