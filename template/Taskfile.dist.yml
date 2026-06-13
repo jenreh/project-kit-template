@@ -4,37 +4,40 @@ version: "3"
 
 includes:
   # Optional includes are marked `optional: true`, so go-task silently skips any
-  # tasks/Taskfile.*.yml the Copier template chose not to ship (per feature flags).
+  # taskfiles/Taskfile.*.yml the Copier template chose not to ship (per feature flags).
   qa:
-    taskfile: ./tasks/Taskfile.qa.yml
+    taskfile: ./taskfiles/Taskfile.qa.yml
     flatten: true
     vars:
       PROJECT: "{{.PROJECT}}"
-  release: ./tasks/Taskfile.release.yml
+  release: ./taskfiles/Taskfile.release.yml
   reflex:
-    taskfile: ./tasks/Taskfile.reflex.yml
+    taskfile: ./taskfiles/Taskfile.reflex.yml
     flatten: true
     optional: true
   db:
-    taskfile: ./tasks/Taskfile.db.yml
+    taskfile: ./taskfiles/Taskfile.db.yml
     optional: true
   docker:
-    taskfile: ./tasks/Taskfile.docker.yml
+    taskfile: ./taskfiles/Taskfile.docker.yml
     optional: true
     vars:
       IMAGE_NAME: "{{.PROJECT}}-image"
   dev:
-    taskfile: ./tasks/Taskfile.terraform-azure.yaml
+    taskfile: ./taskfiles/Taskfile.terraform.yaml
     optional: true
     vars:
       TF_DIR: "{{.ROOT_DIR}}/terraform"
       ENVIRONMENT: dev
   prod:
-    taskfile: ./tasks/Taskfile.terraform-azure.yaml
+    taskfile: ./taskfiles/Taskfile.terraform.yaml
     optional: true
     vars:
       TF_DIR: "{{.ROOT_DIR}}/terraform"
       ENVIRONMENT: prod
+  docs:
+    taskfile: ./taskfiles/Taskfile.docs.yml
+    optional: true
 
 silent: true
 

@@ -33,7 +33,12 @@
 				"GitHub.vscode-pull-request-github",
 				"humao.rest-client",
 {%- if include_terraform %}
+				"hashicorp.terraform",
+{%- if cloud_provider == 'azure' %}
 				"ms-azuretools.vscode-azureterraform",
+{%- elif cloud_provider == 'aws' %}
+				"amazonwebservices.aws-toolkit-vscode",
+{%- endif %}
 {%- endif %}
 {%- if include_docker %}
 				"ms-azuretools.vscode-docker",
@@ -62,13 +67,16 @@
 			"username": "vscode"
 		},
 		"ghcr.io/devcontainers/features/git:1.3.5": {},
-		"ghcr.io/devcontainers/features/github-cli:1.1.0": {},
-		"ghcr.io/jsburckhardt/devcontainer-features/uv:1": {}{% if include_docker or include_terraform or project_type == "reflex" %},{% endif %}
+		"ghcr.io/devcontainers/features/github-cli:1.1.0": {}{% if include_docker or include_terraform or project_type == "reflex" %},{% endif %}
 {%- if include_docker %}
 		"ghcr.io/devcontainers/features/docker-outside-of-docker:1.10.0": {}{% if include_terraform or project_type == "reflex" %},{% endif %}
 {%- endif %}
 {%- if include_terraform %}
+{%- if cloud_provider == 'azure' %}
 		"ghcr.io/devcontainers/features/azure-cli:1.2.8": {},
+{%- elif cloud_provider == 'aws' %}
+		"ghcr.io/devcontainers/features/aws-cli:1.1.0": {},
+{%- endif %}
 		"ghcr.io/devcontainers/features/terraform:1.4.2": {
 			"installTerraformDocs": "true",
 			"installTFsec": "true"

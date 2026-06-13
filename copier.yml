@@ -69,8 +69,17 @@ include_docker:
 
 include_terraform:
   type: bool
-  help: Include the terraform/ scaffold + azure task
+  help: Include the terraform/ scaffold + cloud deploy task
   default: false
+
+cloud_provider:
+  type: str
+  help: Which cloud should the terraform scaffold target?
+  choices:
+    Azure: azure
+    AWS: aws
+  default: azure
+  when: "{{ include_terraform }}"
 
 include_docs:
   type: bool
@@ -84,7 +93,7 @@ include_graph:
 
 include_skills:
   type: bool
-  help: Vendor the canonical agent-skills (jenreh/agent-skills) into .agents/skills
+  help: Install jenreh/agent-skills (git subtree -> .agents/agent-skills) and wire .agents/skills + .claude/skills
   default: true
 
 create_github_repo:
@@ -128,7 +137,7 @@ _exclude:
   - ".mypy_cache"
   - ".ruff_cache"
   # All conditional patterns are ROOT-ANCHORED (leading /) so they never catch a
-  # nested path of the same name (e.g. .agents/skills/*/assets, .devcontainer/Dockerfile).
+  # nested path of the same name (e.g. a nested taskfiles/, .devcontainer/Dockerfile).
   # reflex-only layer
   - "{% if project_type != 'reflex' %}/app{% endif %}"
   - "{% if project_type != 'reflex' %}/rxconfig.py{% endif %}"
@@ -136,7 +145,7 @@ _exclude:
   - "{% if project_type != 'reflex' %}/assets{% endif %}"
   - "{% if project_type != 'reflex' %}/components{% endif %}"
   - "{% if project_type != 'reflex' %}/.env.default{% endif %}"
-  - "{% if project_type != 'reflex' %}/tasks/Taskfile.reflex.yml{% endif %}"
+  - "{% if project_type != 'reflex' %}/taskfiles/Taskfile.reflex.yml{% endif %}"
   # github workflows: docker-publish ↔ include_docker; pypi-publish ↔ python libs
   - "{% if not include_docker %}/.github/workflows/01_build_and_publish_docker_image.yml{% endif %}"
   - "{% if project_type != 'python' %}/.github/workflows/02_publish_to_pypi.yml{% endif %}"
@@ -147,18 +156,21 @@ _exclude:
   # appkit migration is reflex-only.
   - "{% if not (project_type == 'reflex' or include_db) %}/alembic{% endif %}"
   - "{% if not (project_type == 'reflex' or include_db) %}/alembic.ini{% endif %}"
-  - "{% if not (project_type == 'reflex' or include_db) %}/tasks/Taskfile.db.yml{% endif %}"
+  - "{% if not (project_type == 'reflex' or include_db) %}/taskfiles/Taskfile.db.yml{% endif %}"
   - "{% if project_type != 'reflex' %}/alembic/versions/2025_12_30_appkit_user_0.10.0.py{% endif %}"
   # docker (root files only; .devcontainer/ Dockerfile + compose are separate)
-  - "{% if not include_docker %}/tasks/Taskfile.docker.yml{% endif %}"
+  - "{% if not include_docker %}/taskfiles/Taskfile.docker.yml{% endif %}"
   - "{% if not (project_type == 'reflex' and include_docker) %}/Dockerfile{% endif %}"
   - "{% if not (project_type == 'reflex' and include_docker) %}/docker-compose.yml{% endif %}"
-  - "{% if not (project_type == 'reflex' and include_docker) %}/.dockerignore{% endif %}"
+  # .dockerignore ships for any include_docker (its contents branch on project_type).
+  - "{% if not include_docker %}/.dockerignore{% endif %}"
   # devcontainer (available for any project type)
   - "{% if not use_devcontainer %}/.devcontainer{% endif %}"
-  # terraform
+  # terraform — the taskfiles/ provider Taskfile self-gates via its conditional
+  # filename, so only the unused deploy-*.sh needs an explicit exclude here.
   - "{% if not include_terraform %}/terraform{% endif %}"
-  - "{% if not include_terraform %}/tasks/Taskfile.terraform-azure.yaml{% endif %}"
+  - "{% if not (include_terraform and cloud_provider == 'azure') %}/terraform/deploy-azure.sh{% endif %}"
+  - "{% if not (include_terraform and cloud_provider == 'aws') %}/terraform/deploy-aws.sh{% endif %}"
   # docs site
   - "{% if not include_docs %}/docs{% endif %}"
 
@@ -185,8 +197,10 @@ _message_after_copy: |
     task test
     {%- endif %}
   {% if include_skills %}
-  Skills are vendored under .agents/skills and linked into .claude/skills
-  (Claude Code, Codex, Copilot all resolve them). Refresh with: copier update --trust
+  Skills: jenreh/agent-skills is vendored as a git subtree at .agents/agent-skills,
+  with .agents/skills (Codex/Copilot) and .claude/skills (Claude Code) symlinked to it.
+  Update later with:
+    git subtree pull --prefix .agents/agent-skills https://github.com/jenreh/agent-skills.git main --squash
   {% endif %}
   {% if include_graph %}
   GraphDB: runic-py (graph migrations + OGM) is in your dependencies, and the
@@ -197,11 +211,17 @@ _tasks:
   # Make the generated project a git repo so pre-commit (and copier update) work.
   - "git rev-parse --git-dir >/dev/null 2>&1 || git init -b main"
   - "uv sync"
-  - command: "mkdir -p .claude && ln -sfn ../.agents/skills .claude/skills"
-    when: "{{ include_skills }}"
-  # Optional: stage an initial commit and create the GitHub repo (requires `gh` auth).
+  # An initial commit is required before installing skills: add-skills.sh runs
+  # `git subtree add`, which refuses to run against a dirty tree or an empty repo.
+  # So we also commit when create_github_repo even without skills.
   - command: "git add -A && git commit -q -m 'Initial commit from kit-template'"
-    when: "{{ create_github_repo }}"
+    when: "{{ include_skills or create_github_repo }}"
+  # Vendor jenreh/agent-skills via git subtree (-> .agents/agent-skills) and wire
+  # .agents/skills (Codex/Copilot) + .claude/skills (Claude Code). The installer
+  # makes its own commit. Override repo/branch via AGENT_SKILLS_REPO/_BRANCH.
+  - command: "curl -fsSL https://raw.githubusercontent.com/jenreh/agent-skills/main/scripts/add-skills.sh | bash"
+    when: "{{ include_skills }}"
+  # Optional: create the GitHub repo and push (requires `gh` auth).
   - command: >-
       gh repo create {{ github_owner }}/{{ project_name }} --{{ github_visibility }}
       --source=. --remote=origin --push

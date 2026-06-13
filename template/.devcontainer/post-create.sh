@@ -12,8 +12,5 @@ mkdir -p /home/vscode/.antigen/bundles/robbyrussell/oh-my-zsh/cache/completions
 cp "$WORKSPACE"/.devcontainer/.p10k.zsh "$HOME"/.p10k.zsh
 cp "$WORKSPACE"/.devcontainer/.zshrc "$HOME"/.zshrc
 
-echo "Setting up Taskfile"
-npm install -g @go-task/cli
-
 echo "Initializing project"
 task init
