@@ -1,0 +1,7 @@
+{
+  "name": "jenreh-python",
+  "description": "Python archetype skills (python-coding, runic, docker-multi-stage, …).",
+  "version": "0.1.0",
+  "author": { "name": "Jens Rehpöhler" },
+  "license": "MIT"
+}

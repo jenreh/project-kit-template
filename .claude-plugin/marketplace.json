@@ -1,0 +1,45 @@
+{
+  "name": "jenreh",
+  "owner": {
+    "name": "Jens Rehpöhler",
+    "url": "https://github.com/jenreh"
+  },
+  "metadata": {
+    "description": "Portable agent skills shared across Claude Code, Codex, and Copilot.",
+    "pluginRoot": "./plugins"
+  },
+  "plugins": [
+    {
+      "name": "jenreh-core",
+      "source": "jenreh-core",
+      "description": "Cross-cutting skills: boost, code-cleanup, commit-msg, create-readme, frontend-design, release, skills-creator, skills-find.",
+      "version": "0.1.0",
+      "author": { "name": "Jens Rehpöhler" },
+      "license": "MIT"
+    },
+    {
+      "name": "jenreh-python",
+      "source": "jenreh-python",
+      "description": "Python archetype skills: python-coding, python-clean-code, docker-multi-stage, github-actions-cicd, runic, runic-migrate, runic-ogm.",
+      "version": "0.1.0",
+      "author": { "name": "Jens Rehpöhler" },
+      "license": "MIT"
+    },
+    {
+      "name": "jenreh-reflex",
+      "source": "jenreh-reflex",
+      "description": "reflex.dev / AppKit web skills: appkit-commons, appkit-mantine-reference, reflex-docs, reflex-state-and-architecture, reflex-testing-state.",
+      "version": "0.1.0",
+      "author": { "name": "Jens Rehpöhler" },
+      "license": "MIT"
+    },
+    {
+      "name": "jenreh-terraform",
+      "source": "jenreh-terraform",
+      "description": "Terraform / infra skills: AVM modules, refactor, acceptance tests, search-import, stacks, style-guide, test.",
+      "version": "0.1.0",
+      "author": { "name": "Jens Rehpöhler" },
+      "license": "MIT"
+    }
+  ]
+}
