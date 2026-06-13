@@ -1,0 +1,173 @@
+_subdirectory: template
+_templates_suffix: .jinja
+_preserve_symlinks: true
+_envops:
+  keep_trailing_newline: true
+
+# ─── Questions ────────────────────────────────────────────────────────────────
+
+project_name:
+  type: str
+  help: Project / distribution name (kebab-case, e.g. voyager)
+
+project_type:
+  type: str
+  help: What kind of project is this?
+  choices:
+    "Python-only (CLI / library / service)": python
+    "reflex.dev / AppKit web app": reflex
+  default: python
+
+package_name:
+  type: str
+  help: Python import package (snake_case)
+  default: "{{ project_name.replace('-', '_') }}"
+  when: "{{ project_type == 'python' }}"
+  validator: >-
+    {% if project_type == 'python' and package_name == 'app' %}
+    package_name cannot be 'app' for a Python project (collides with the reflex app dir)
+    {% endif %}
+
+project_description:
+  type: str
+  help: One-line project description
+  default: "A {{ 'reflex.dev / AppKit web' if project_type == 'reflex' else 'Python' }} application."
+
+author_name:
+  type: str
+  default: Jens Rehpöhler
+
+github_owner:
+  type: str
+  default: jenreh
+
+python_version:
+  type: str
+  default: "3.14"
+
+include_db:
+  type: bool
+  help: Add SQL database deps (sqlalchemy/alembic/psycopg). Reflex always includes the full DB layer.
+  default: false
+  when: "{{ project_type == 'python' }}"
+
+db_name:
+  type: str
+  help: Postgres database name
+  default: "{{ project_name }}-db"
+  when: "{{ project_type == 'reflex' or include_db }}"
+
+use_devcontainer:
+  type: bool
+  help: Include the .devcontainer/ setup
+  default: true
+  when: "{{ project_type == 'reflex' }}"
+
+include_docker:
+  type: bool
+  help: Include Docker tooling (Dockerfile + compose for reflex; docker task otherwise)
+  default: "{{ project_type == 'reflex' }}"
+
+include_terraform:
+  type: bool
+  help: Include the terraform/ scaffold + azure task
+  default: false
+
+include_docs:
+  type: bool
+  help: Include the VitePress docs/ site scaffold
+  default: "{{ project_type == 'python' }}"
+
+include_graph:
+  type: bool
+  help: Add GraphDB / runic (graph schema migrations + OGM) scaffolding hooks
+  default: false
+
+include_skills:
+  type: bool
+  help: Vendor the canonical agent-skills (jenreh/agent-skills) into .agents/skills
+  default: true
+
+# ─── File selection ───────────────────────────────────────────────────────────
+# _exclude replaces Copier's defaults, so VCS/OS/build junk is re-listed first,
+# then each conditional pattern renders to "" (matches nothing) when its feature
+# is enabled. The python package lives in a whole-segment conditional directory
+# ({% raw %}{% if project_type == 'python' %}{{ package_name }}{% endif %}{% endraw %})
+# and vanishes for reflex, so it is not listed here.
+_exclude:
+  - "copier.yml"
+  - "copier.yaml"
+  - "~*"
+  - "*.py[co]"
+  - "__pycache__"
+  - ".git"
+  - ".svn"
+  - ".DS_Store"
+  - ".venv*"
+  - ".cache"
+  - ".coverage"
+  - "coverage.xml"
+  - "node_modules"
+  - ".web"
+  - ".states"
+  - "dist"
+  - ".pytest_cache"
+  - ".mypy_cache"
+  - ".ruff_cache"
+  # reflex-only layer
+  - "{% if project_type != 'reflex' %}app{% endif %}"
+  - "{% if project_type != 'reflex' %}rxconfig.py{% endif %}"
+  - "{% if project_type != 'reflex' %}configuration{% endif %}"
+  - "{% if project_type != 'reflex' %}assets{% endif %}"
+  - "{% if project_type != 'reflex' %}components{% endif %}"
+  - "{% if project_type != 'reflex' %}.env.default{% endif %}"
+  - "{% if project_type != 'reflex' %}tasks/Taskfile.reflex.yml{% endif %}"
+  - "{% if project_type != 'reflex' %}.github/workflows{% endif %}"
+  # python-only smoke test imports the python package
+  - "{% if project_type != 'python' %}tests/test_smoke.py{% endif %}"
+  # database / alembic scaffold is reflex-only (its env.py is appkit/reflex-coupled).
+  # For python, include_db adds only the SQL dependencies (see pyproject).
+  - "{% if project_type != 'reflex' %}alembic{% endif %}"
+  - "{% if project_type != 'reflex' %}alembic.ini{% endif %}"
+  - "{% if project_type != 'reflex' %}tasks/Taskfile.db.yml{% endif %}"
+  # docker
+  - "{% if not include_docker %}tasks/Taskfile.docker.yml{% endif %}"
+  - "{% if not (project_type == 'reflex' and include_docker) %}Dockerfile{% endif %}"
+  - "{% if not (project_type == 'reflex' and include_docker) %}docker-compose.yml{% endif %}"
+  - "{% if not (project_type == 'reflex' and include_docker) %}.dockerignore{% endif %}"
+  # devcontainer
+  - "{% if not (project_type == 'reflex' and use_devcontainer) %}.devcontainer{% endif %}"
+  # terraform
+  - "{% if not include_terraform %}terraform{% endif %}"
+  - "{% if not include_terraform %}tasks/Taskfile.terraform-azure.yaml{% endif %}"
+  # docs site
+  - "{% if not include_docs %}docs{% endif %}"
+
+# ─── Post-generation ──────────────────────────────────────────────────────────
+
+_message_after_copy: |
+  Project "{{ project_name }}" ({{ project_type }}) created.
+
+  Next:
+    cd {{ _copier_conf.dst_path }}
+    task init
+    {% if project_type == 'reflex' -%}
+    # reflex needs Postgres + secrets first:
+    #   cp .env.default .env  (set mn-db-* ; DB name: {{ db_name }})
+    #   start Postgres, create the DB, then: task db:upgrade && task run
+    {%- else -%}
+    task test
+    {%- endif %}
+  {% if include_skills %}
+  Skills are vendored under .agents/skills and linked into .claude/skills
+  (Claude Code, Codex, Copilot all resolve them). Refresh with: copier update --trust
+  {% endif %}
+  {% if include_graph %}
+  GraphDB/runic: the runic skills are vendored; add your graph `runic` package to
+  pyproject (the PyPI `runic` is unrelated — use your own source/index).
+  {% endif %}
+
+_tasks:
+  - "uv sync"
+  - command: "mkdir -p .claude && ln -sfn ../.agents/skills .claude/skills"
+    when: "{{ include_skills }}"

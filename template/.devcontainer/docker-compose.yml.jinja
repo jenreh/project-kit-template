@@ -1,0 +1,36 @@
+services:
+  app:
+    container_name: {{ project_name }}-dev
+    image: {{ project_name }}/ui-dev
+    build:
+      context: ..
+      dockerfile: .devcontainer/Dockerfile
+      args:
+        VARIANT: 3.13-bookworm
+    volumes:
+      - ../..:/workspaces:rw,cached
+    command: sleep infinity
+    networks:
+      - {{ project_name }}-network
+
+  db:
+    container_name: {{ project_name }}-db
+    image: pgvector/pgvector:pg15
+    restart: unless-stopped
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_DB: {{ db_name }}
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - 5433:5432
+    networks:
+      - {{ project_name }}-network
+
+volumes:
+  postgres-data:
+    name: {{ project_name }}-postgres-data
+networks:
+  {{ project_name }}-network:
+    driver: bridge
