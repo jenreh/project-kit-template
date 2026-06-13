@@ -56,6 +56,6 @@ def add_https_middleware(asgi_app: ASGIApp) -> ASGIApp:
 
 app = rx.App(
     stylesheets=base_stylesheets,
-    style=base_style,
+    style=base_style,  # ty: ignore[invalid-argument-type]  # reflex dynamic styling
     api_transformer=[add_https_middleware],
 )
