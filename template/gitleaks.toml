@@ -1,19 +1,22 @@
 [extend]
 useDefault = true
 
-[allowlist]
-description = "Allowlist for uv and reflex.dev"
+[[allowlists]]
+description = "Allowlist for uv, reflex.dev, and DB migrations"
 paths = [
     # --- UV Specifics ---
-    '''uv\.lock''', # Essential: uv lockfile hashes look like secrets
-    '''\.venv/.*''', # Just in case venv isn't in .gitignore
-    '''\.venv.mac/.*''', # Just in case venv isn't in .gitignore
+    '''uv\.lock''',       # Essential: uv lockfile hashes look like secrets
+    '''\.venv/.*''',      # Just in case venv isn't in .gitignore
+    '''\.venv\.mac/.*''', # Just in case venv isn't in .gitignore
 
     # --- Reflex.dev Specifics ---
-    '''\.web/.*''', # Reflex compiled frontend artifacts
-    '''assets/.*''', # Static assets (images/fonts) can trigger entropy checks
-    '''alembic/versions/.*''', # Migration scripts have random revision IDs
+    '''\.web/.*''',     # Reflex compiled frontend artifacts
+    '''assets/.*''',    # Static assets (images/fonts) can trigger entropy checks
     '''rxconfig\.py''', # Config often has non-sensitive keys flagged
+
+    # --- DB Migrations (random revision IDs look like secrets) ---
+    '''alembic/versions/.*''', # Alembic migration scripts
+    '''runic/versions/.*''',   # Runic graph migration scripts
 
     # --- Standard Python ---
     '''tests/.*''',
