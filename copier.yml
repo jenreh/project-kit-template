@@ -66,9 +66,6 @@ python_version:
   choices:
     "3.15": "3.15"
     "3.14": "3.14"
-    "3.13": "3.13"
-    "3.12": "3.12"
-    "3.11": "3.11"
   default: "3.14"
   validator: >-
     {% if project_type == 'reflex' and python_version in ['3.11', '3.12'] %}
