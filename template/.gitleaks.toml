@@ -1,24 +1,37 @@
+title = "Project gitleaks config"
+
 [extend]
 useDefault = true
 
+# Only files that cannot be reviewed by hand and are not hand-written source.
+# Patterns are unanchored regexes, so anchor them to the repository root or a path segment.
 [[allowlists]]
-description = "Generated files and binary assets"
+description = "Lockfiles, generated artifacts and binary assets"
 paths = [
-    # --- UV Specifics ---
-    '''uv\.lock''',       # Essential: uv lockfile hashes look like secrets
-    '''\.venv/.*''',      # Just in case venv isn't in .gitignore
-    '''\.venv\.mac/.*''', # Just in case venv isn't in .gitignore
+    # uv lockfile: package hashes look like secrets
+    '''(^|/)uv\.lock$''',
 
-    # --- Reflex.dev Specifics ---
-    '''\.web/.*''',                  # Reflex compiled frontend artifacts
-    '''assets/(img|icons)/.*''',     # Images can trigger entropy checks
-    '''assets/favicon\.ico''',
+    # Local environments and caches (only matter for `gitleaks dir`, git scans skip ignored files)
+    '''(^|/)\.venv(\.[a-z]+)?/''',
+    '''(^|/)__pycache__/''',
+    '''(^|/)\.(ruff|pytest|mypy)_cache/''',
 
-    # --- Standard Python ---
-    '''__pycache__/.*''',
+    # Reflex compiled frontend artifacts
+    '''(^|/)\.web/''',
+
+    # Images and icons can trigger entropy checks
+    '''(^|/)assets/(img|icons)/''',
+    '''(^|/)assets/favicon\.ico$''',
 ]
 
+# Config values like `password: secret:mn-db-password` name a secret in the secret provider,
+# they never contain one. Only the whole kebab-case reference is ignored, so a real value
+# that merely contains "secret:" is still reported.
 [[allowlists]]
 description = "References to the secret provider, which hold no secret value"
-regexTarget = "match"
-regexes = ['''secret:[a-zA-Z0-9\-_]+''']
+regexes = ['''^secret:[a-z0-9]+(-[a-z0-9]+)*$''']
+
+# Placeholders from .env.default, e.g. `<your database password here>`.
+[[allowlists]]
+description = "Documented placeholder values"
+regexes = ['''^<your [a-z ]+ here>$''']
