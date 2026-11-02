@@ -1,0 +1,21 @@
+profile: prod
+
+reflex:
+  deploy_url: secret:mn-server-endpoint
+  api_url: secret:mn-server-endpoint
+  frontend_port: 8080
+  backend_port: 8080
+  workers: 2
+  # Number of reverse proxies in front of the app. 0 ignores X-Forwarded-For, so
+  # behind a proxy every user would share the login throttle of the proxy address.
+  trusted_proxy_hops: 0
+
+app:
+  environment: production
+
+  database:
+    ssl_mode: require # use verify-full once the server CA is available
+
+  authentication:
+    server_url: secret:mn-server-endpoint
+    server_port: 0 # already part of mn-server-endpoint

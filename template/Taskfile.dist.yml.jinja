@@ -64,13 +64,6 @@ includes:
   #     TF_DIR: "{% raw %}{{.ROOT_DIR}}{% endraw %}/terraform"
   #     ENVIRONMENT: prod
 {%- endif %}
-{% if include_docs %}
-  docs:
-    taskfile: ./taskfiles/Taskfile.docs.yml
-{%- else %}
-  # docs:
-  #   taskfile: ./taskfiles/Taskfile.docs.yml
-{%- endif %}
 {% raw %}
 silent: true
 
@@ -102,16 +95,11 @@ tasks:
       - echo "📦 Syncing dependencies..."
       - uv sync
       - echo "🔒 Installing pre-commit hooks..."
-      - uv tool list | grep -q pre-commit || uv tool install pre-commit
       - git rev-parse --git-dir >/dev/null 2>&1 || git init -b main
       - uv run pre-commit install
 
   install:
     desc: Install all dependencies (including dev extras)
-    cmd: uv sync
-
-  sync:
-    desc: Install dependencies using uv
     cmd: uv sync
 
   clean:

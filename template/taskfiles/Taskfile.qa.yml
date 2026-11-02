@@ -6,6 +6,11 @@ silent: true
 
 vars:
   RUNNER: uv run
+  # App package plus every component source dir (components/*/src).
+  SRC_DIRS:
+    sh: |
+      printf '%s' "{{.PROJECT}}"
+      for d in components/*/src; do [ -d "$d" ] && printf ' %s' "$d"; done; true
 
 tasks:
   # ----------------------------------------------------------------------------
@@ -18,14 +23,25 @@ tasks:
 
   lint:
     desc: Run linting with ruff
-    cmd: "{{.RUNNER}} ruff check ."
+    cmd: "{{.RUNNER}} ruff check {{.SRC_DIRS}}"
 
   format:
     desc: Format code with ruff
     cmds:
-      - "{{.RUNNER}} ruff check --fix ."
-      - "{{.RUNNER}} ruff format ."
+      - "{{.RUNNER}} ruff check --fix {{.SRC_DIRS}}"
+      - "{{.RUNNER}} ruff format {{.SRC_DIRS}}"
 
   typecheck:
     desc: Run ty type checking
-    cmd: "{{.RUNNER}} ty check {{.PROJECT}}"
+    cmd: "{{.RUNNER}} ty check {{.SRC_DIRS}}"
+
+  audit:
+    desc: Check the locked dependencies for known vulnerabilities
+    cmds:
+      - uv audit --frozen
+      - |
+        for f in components/*/pyproject.toml; do
+          [ -f "$f" ] || continue
+          echo "Auditing $f"
+          uv audit --frozen --project "$(dirname "$f")"
+        done

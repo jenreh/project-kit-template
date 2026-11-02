@@ -1,7 +1,8 @@
 profile: local
 
 reflex:
-  deploy_url: http://localhost
+  deploy_url: http://localhost:8080
+  api_url: http://localhost:3030
   frontend_port: 8080
 
 app:

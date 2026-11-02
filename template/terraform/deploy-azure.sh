@@ -86,11 +86,23 @@ check_tfvars() {
         fi
     fi
 
-    # Show variables being passed via -var
+    # Show variables being passed via -var.
+    # Values of sensitive variables are redacted: echoing e.g. shared_secret
+    # would leak it to the terminal and CI/session logs.
     if [[ ${#TF_VARS[@]} -gt 0 ]]; then
         print_success "Using command-line variables:"
-        for ((i=0; i<${#TF_VARS[@]}; i+=2)); do
-            echo -e "${CYAN}  ${TF_VARS[i+1]}${NC}"
+        local kv key
+        for kv in "${TF_VARS[@]}"; do
+            [[ "$kv" == "-var" ]] && continue
+            key="${kv%%=*}"
+            case "$key" in
+                *secret*|*password*|*token*|*credential*|*key*)
+                    echo -e "${CYAN}  ${key}=***${NC}"
+                    ;;
+                *)
+                    echo -e "${CYAN}  ${kv}${NC}"
+                    ;;
+            esac
         done
     fi
 }
@@ -102,11 +114,12 @@ check_tfvars() {
 read_tfvar() {
     local var_name="$1"
     local value=""
+    local kv
 
     # Check -var overrides first (last one wins)
-    for ((i=0; i<${#TF_VARS[@]}; i+=2)); do
-        if [[ "${TF_VARS[i+1]}" == "${var_name}="* ]]; then
-            value="${TF_VARS[i+1]#*=}"
+    for kv in "${TF_VARS[@]}"; do
+        if [[ "$kv" == "${var_name}="* ]]; then
+            value="${kv#*=}"
         fi
     done
     [[ -n "$value" ]] && { echo "$value"; return; }
@@ -130,8 +143,10 @@ generate_backend_hcl() {
     sa=$(read_tfvar "state_storage_account_name")
     container=$(read_tfvar "state_container_name")
 
-    [[ -n "$rg" ]] || rg="knowledgeai-terraform-rg"
-    [[ -n "$sa" ]] || sa="knowledgeaiprodtfstate"
+    # No fallback names: the state holds secrets and must only ever go to a
+    # storage account that this project owns.
+    [[ -n "$rg" ]] || { print_error "Set state_resource_group_name in your tfvars"; exit 1; }
+    [[ -n "$sa" ]] || { print_error "Set state_storage_account_name in your tfvars"; exit 1; }
     [[ -n "$container" ]] || container="tfstate"
 
     local hcl_file="$TERRAFORM_DIR/backend.prod.hcl"
@@ -144,6 +159,7 @@ resource_group_name  = "$rg"
 storage_account_name = "$sa"
 container_name       = "$container"
 key                  = "terraform.tfstate"
+use_azuread_auth     = true
 EOF
     print_success "Generated $hcl_file"
 }
@@ -167,6 +183,7 @@ run_bootstrap() {
 
     print_step "Applying bootstrap configuration"
     terraform apply bootstrap.tfplan
+    rm -f bootstrap.tfplan # plans contain secrets in clear text
     print_success "Bootstrap phase completed successfully!"
 
     print_step "Writing backend configuration"
@@ -214,6 +231,7 @@ run_migrate() {
     [[ "$response" =~ ^([yY][eE][sS]|[yY])$ ]] || { print_warning "Cancelled."; exit 0; }
 
     terraform apply main.tfplan
+    rm -f main.tfplan # plans contain secrets in clear text
     print_success "Main infrastructure deployed successfully!"
     terraform output deployment_summary
 }

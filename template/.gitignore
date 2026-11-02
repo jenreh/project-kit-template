@@ -7,8 +7,8 @@ __pypackages__/
 .DS_Store
 .eggs/
 .env
-.env.backup
-.env.docker
+.env.*
+!.env.default
 .hypothesis/
 .idea/
 .installed.cfg
@@ -47,7 +47,6 @@ __pypackages__/
 *.sage.py
 *.so
 *.spec
-*.terraform.lock.hcl
 *.tfplan
 *.tfstate
 *.tfstate.*.backup
@@ -62,10 +61,6 @@ assets/external/
 build/
 celerybeat-schedule
 celerybeat.pid
-configuration/config.abaz009.yaml
-configuration/config.bubb001.yaml
-configuration/config.stie104.yaml
-configuration/config.voro047.yaml
 connector examples/sharepoint.json
 cover/
 coverage.xml
@@ -112,6 +107,11 @@ var/
 venv.bak/
 venv/
 wheels/
-docs/.vitepress/cache
-docs/.vitepress/dist
-docs/node_modules
+
+# Secrets and generated infrastructure files
+*.key
+*.p12
+*.pem
+*.pfx
+backend_config.json
+backend.prod.hcl

@@ -165,27 +165,6 @@ def upgrade() -> None:
         sa.UniqueConstraint("session_id"),
     )
 
-    op.execute(
-        """
-        INSERT INTO public.auth_users
-        (email, name, avatar_url, is_active, is_admin, is_verified, _password, created, updated, last_login, needs_password_reset, roles)
-        VALUES(
-            'admin',
-            'Default Admin (please change)',
-            '',
-            true,
-            true,
-            true,
-            'scrypt:32768:8:1$bIA8HVQhPyudwZyV$76d044d2322d395a3a9c95b29337c0c4d24e2426d86d246cc72095fe2455be0540590ecea3c4d433262ea9d9aaa44eaa285363eed568451895ef25652911a2dc',
-            '2025-02-03 10:18:40.258',
-            '2025-02-03 10:19:14.354',
-            '2025-02-03 10:19:14.354',
-            false,
-            '{"user"}'
-        );
-        """
-    )
-
 
 def downgrade() -> None:
     op.drop_table("auth_sessions")

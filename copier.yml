@@ -9,6 +9,11 @@ _envops:
 project_name:
   type: str
   help: Project / distribution name (kebab-case, e.g. voyager)
+  # Answers end up in shell commands and TOML/YAML files, so they are validated.
+  validator: >-
+    {% if not (project_name | regex_search('^[a-z][a-z0-9-]*$')) %}
+    project_name must be kebab-case: lower case letters, digits and hyphens
+    {% endif %}
 
 project_type:
   type: str
@@ -24,7 +29,9 @@ package_name:
   default: "{{ project_name.replace('-', '_') }}"
   when: "{{ project_type == 'python' }}"
   validator: >-
-    {% if project_type == 'python' and package_name == 'app' %}
+    {% if not (package_name | regex_search('^[a-z_][a-z0-9_]*$')) %}
+    package_name must be snake_case: lower case letters, digits and underscores
+    {% elif project_type == 'python' and package_name == 'app' %}
     package_name cannot be 'app' for a Python project (collides with the reflex app dir)
     {% endif %}
 
@@ -32,14 +39,26 @@ project_description:
   type: str
   help: One-line project description
   default: "A {{ 'reflex.dev / AppKit web' if project_type == 'reflex' else 'Python' }} application."
+  validator: >-
+    {% if project_description | regex_search('["\\\n]') %}
+    project_description cannot contain double quotes, backslashes or line breaks
+    {% endif %}
 
 author_name:
   type: str
   default: Jens Rehpöhler
+  validator: >-
+    {% if author_name | regex_search('["\\\n]') %}
+    author_name cannot contain double quotes, backslashes or line breaks
+    {% endif %}
 
 github_owner:
   type: str
   default: jenreh
+  validator: >-
+    {% if not (github_owner | regex_search('^[A-Za-z0-9][A-Za-z0-9-]*$')) %}
+    github_owner must be a GitHub user or organization name
+    {% endif %}
 
 python_version:
   type: str
@@ -51,6 +70,10 @@ python_version:
     "3.12": "3.12"
     "3.11": "3.11"
   default: "3.14"
+  validator: >-
+    {% if project_type == 'reflex' and python_version in ['3.11', '3.12'] %}
+    reflex projects need Python 3.13 or newer (required by appkit)
+    {% endif %}
 
 include_db:
   type: bool
@@ -63,6 +86,10 @@ db_name:
   help: Postgres database name
   default: "{{ project_name }}-db"
   when: "{{ project_type == 'reflex' or include_db }}"
+  validator: >-
+    {% if not (db_name | regex_search('^[A-Za-z0-9][A-Za-z0-9_-]*$')) %}
+    db_name can only contain letters, digits, hyphens and underscores
+    {% endif %}
 
 use_devcontainer:
   type: bool
@@ -90,13 +117,17 @@ cloud_provider:
 
 include_docs:
   type: bool
-  help: Include the VitePress docs/ site scaffold
+  help: Include a docs/ folder for plain Markdown documentation
   default: "{{ project_type == 'python' }}"
 
 include_graph:
   type: bool
   help: Add GraphDB / runic-py (graph schema migrations + OGM for Cypher DBs)
   default: false
+  validator: >-
+    {% if include_graph and python_version in ['3.11', '3.12', '3.13'] %}
+    runic-py needs Python 3.14 or newer
+    {% endif %}
 
 include_skills:
   type: bool
@@ -116,6 +147,13 @@ github_visibility:
     Public: public
   default: private
   when: "{{ create_github_repo }}"
+
+# Commit of jenreh/agent-skills to vendor. Pinned so that a later change on that
+# branch cannot run on a machine that generates a project. Raise it deliberately.
+agent_skills_ref:
+  type: str
+  default: 6fe7e765e81d86aef60302452498c1d1050af25e
+  when: false
 
 # ─── File selection ───────────────────────────────────────────────────────────
 # _exclude replaces Copier's defaults, so VCS/OS/build junk is re-listed first,
@@ -163,9 +201,11 @@ _exclude:
   - "{% if not (project_type == 'reflex' or include_db) %}/alembic{% endif %}"
   - "{% if not (project_type == 'reflex' or include_db) %}/alembic.ini{% endif %}"
   - "{% if project_type != 'reflex' %}/alembic/versions/2025_12_30_appkit_user_0.10.0.py{% endif %}"
+  - "{% if project_type != 'reflex' %}/alembic/versions/2026_11_02_appkit_user_1.18.0.py{% endif %}"
   # docker (root files only; .devcontainer/ Dockerfile + compose are separate)
   - "{% if not (project_type == 'reflex' and include_docker) %}/Dockerfile{% endif %}"
   - "{% if not (project_type == 'reflex' and include_docker) %}/docker-compose.yml{% endif %}"
+  - "{% if not (project_type == 'reflex' and include_docker) %}/start.sh{% endif %}"
   # .dockerignore ships for any include_docker (its contents branch on project_type).
   - "{% if not include_docker %}/.dockerignore{% endif %}"
   # devcontainer (available for any project type)
@@ -197,7 +237,9 @@ _message_after_copy: |
     {% if project_type == 'reflex' -%}
     # reflex needs Postgres + secrets first:
     #   cp .env.default .env  (set mn-db-* ; DB name: {{ db_name }})
-    #   start Postgres, create the DB, then: task db:upgrade && task run
+    #   start Postgres, create the DB, then: task db:upgrade
+    # there are no default accounts. Set mn-admin-email + mn-admin-password in .env, then:
+    #   task admin:bootstrap && task run
     {%- else -%}
     task test
     {%- endif %}
@@ -223,8 +265,10 @@ _tasks:
     when: "{{ include_skills or create_github_repo }}"
   # Vendor jenreh/agent-skills via git subtree (-> .agents/agent-skills) and wire
   # .agents/skills (Codex/Copilot) + .claude/skills (Claude Code). The installer
-  # makes its own commit. Override repo/branch via AGENT_SKILLS_REPO/_BRANCH.
-  - command: "curl -fsSL https://raw.githubusercontent.com/jenreh/agent-skills/main/scripts/add-skills.sh | bash"
+  # makes its own commit. Override repo/ref via AGENT_SKILLS_REPO/_BRANCH.
+  - command: >-
+      curl -fsSL https://raw.githubusercontent.com/jenreh/agent-skills/{{ agent_skills_ref }}/scripts/add-skills.sh
+      | AGENT_SKILLS_BRANCH="${AGENT_SKILLS_BRANCH:-{{ agent_skills_ref }}}" bash
     when: "{{ include_skills }}"
   # Optional: create the GitHub repo and push (requires `gh` auth).
   - command: >-

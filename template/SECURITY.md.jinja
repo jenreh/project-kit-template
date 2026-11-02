@@ -1,0 +1,44 @@
+# Security
+
+## Reporting a vulnerability
+
+Please do not open a public issue. Use GitHub's private vulnerability reporting for
+this repository, or contact the maintainers directly.
+
+## Secure defaults
+
+- Secrets come from the secret provider (`.env` locally). `gitleaks` scans every commit
+  and pull request.
+- Dependencies are locked in `uv.lock` and audited by `task audit` and in CI. GitHub
+  Actions, tool images and pre-commit hooks are pinned to immutable versions, and
+  Dependabot keeps them current.
+{%- if project_type == 'reflex' %}
+- No default accounts exist. `task admin:bootstrap` creates the first administrator
+  from `mn-admin-email` and `mn-admin-password`, and that password must be changed at
+  first login.
+- Routes are default-deny (`public_routes`). A session is checked for websocket events
+  and page loads, and failed logins are throttled.
+- CORS only allows the origin of `deploy_url`. Responses carry security headers, and
+  the session cookie is `Secure`.
+- The container runs as an unprivileged user without development dependencies.
+{%- endif %}
+
+## Before you deploy
+{% if project_type == 'reflex' %}
+- [ ] Run with `PROFILES=prod`, and set `mn-server-endpoint` to your public `https://` URL.
+- [ ] Generate a new `mn-db-encryption-key` for every environment. Keep it safe, because
+      encrypted columns cannot be read without it.
+- [ ] Terminate TLS in a reverse proxy, and do not expose the app port directly.
+- [ ] Set `FORWARDED_ALLOW_IPS` to the proxy addresses, and `reflex.trusted_proxy_hops`
+      to the number of proxies. Otherwise all users share one login throttle.
+- [ ] Use `ssl_mode: verify-full` for the database once the server CA is available.
+- [ ] Run `task admin:bootstrap` once, then remove `mn-admin-password` from the
+      environment.
+- [ ] Consider a full `Content-Security-Policy` at the proxy. The app only sets
+      `frame-ancestors`, because Reflex pages need inline scripts.
+{%- else %}
+- [ ] Keep production secrets in a secret manager, not in files on the host.
+- [ ] Run the service as an unprivileged user.
+{%- endif %}
+- [ ] Enable branch protection, and require the `00 Security checks` workflow.
+- [ ] Turn on Dependabot security updates and private vulnerability reporting.

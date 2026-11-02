@@ -1,7 +1,10 @@
-import logging
-
 import reflex as rx
-from appkit_commons.middleware import ForceHTTPSMiddleware
+from appkit_commons.middleware import (
+    ForceHTTPSMiddleware,
+    SecurityHeadersMiddleware,
+    trusted_proxy_hosts_from_env,
+)
+from appkit_user.authentication import add_session_guard, install_session_filter
 from appkit_user.authentication.pages import (  # noqa: F401
     azure_oauth_callback_page,
     github_oauth_callback_page,
@@ -19,7 +22,6 @@ from app.components.navbar import app_navbar
 from app.pages.users import users_page  # noqa: F401
 from app.styles import base_style, base_stylesheets
 
-logging.basicConfig(level=logging.DEBUG)
 create_login_page()
 create_profile_page(
     app_navbar(),
@@ -48,14 +50,19 @@ def index() -> rx.Component:
     )
 
 
-# Middleware transformer for HTTPS redirect
 def add_https_middleware(asgi_app: ASGIApp) -> ASGIApp:
-    """Wrap the ASGI app with HTTPS redirect middleware."""
-    return ForceHTTPSMiddleware(asgi_app)
+    """Correct the scheme behind the proxy and add the security response headers."""
+    return ForceHTTPSMiddleware(
+        SecurityHeadersMiddleware(asgi_app),
+        trusted_hosts=trusted_proxy_hosts_from_env(),
+    )
 
 
 app = rx.App(
     stylesheets=base_stylesheets,
     style=base_style,  # ty: ignore[invalid-argument-type]  # reflex dynamic styling
-    api_transformer=[add_https_middleware],
+    # The session guard sits inside the scheme correction, so it already sees the
+    # corrected scheme when it issues a redirect.
+    api_transformer=[add_session_guard, add_https_middleware],
 )
+install_session_filter(app)

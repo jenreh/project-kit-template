@@ -1,7 +1,8 @@
 profile: default
 
 reflex:
-  deploy_url: http://localhost
+  deploy_url: https://localhost:8080
+  api_url: https://localhost:3030
   frontend_port: 8080
   backend_port: 3030
   workers: 1
@@ -10,7 +11,7 @@ app:
   version: 1.0.0
   name: {{ project_name }}
   logging: logging.prod.yaml
-  environment: prod
+  environment: production
   backend_timeout: 180 # seconds
 
   database:
@@ -29,14 +30,30 @@ app:
     auth_token_refresh_delta: 10 # minutes
     server_url: https://localhost
     server_port: 8080
+    session_filter_enabled: true # guards websocket events, page loads and REST routes
+    session_cookie_secure: true # browsers exempt localhost, so local http still works
 
+    # Everything not listed here needs a session. The list is matched without any
+    # frontend_path prefix.
+    public_routes:
+      - /login
+      - /password-reset
+      - /password-reset/confirm
+      - /oauth/*/callback
+
+    login_rate_limit:
+      enabled: true
+      max_attempts: 5
+      max_attempts_per_client: 20
+      window_minutes: 15
+      lockout_minutes: 15
+
+    # Leave redirect_url unset: it is derived from server_url and frontend_path.
     #oauth_providers:
     # - provider: "github"
-    #   client_id: secret:mn-oauth-github-client-id
-    #   client_secret: secret:mn-oauth-github-client-secret
-    #   redirect_url: http://localhost:8080/oauth/github/callback
+    #   client_id: secret:common-oauth-github-client-id
+    #   client_secret: secret:common-oauth-github-client-secret
     # - provider: "azure"
-    #   client_id: secret:avui-oauth-azure-client-id
-    #   client_secret: secret:avui-oauth-azure-client-secret
-    #   tenant_id: secret:avui-oauth-azure-tenant-id
-    #   redirect_url: http://localhost:8080/oauth/azure/callback
+    #   client_id: secret:common-oauth-azure-client-id
+    #   client_secret: secret:common-oauth-azure-client-secret
+    #   tenant_id: secret:common-oauth-azure-tenant-id

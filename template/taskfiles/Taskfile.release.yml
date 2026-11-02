@@ -21,7 +21,7 @@ tasks:
       Usage: task release:build -- [major|minor|patch], defaults to 'patch'.
       Bumps version, commits, and creates a GitHub release.
     cmds:
-      - uvx bump-my-version bump {{.CLI_ARGS | default "patch"}}
+      - uv run bump-my-version bump {{.CLI_ARGS | default "patch"}}
       - uv sync
       - git add -A
       - 'git diff --cached --quiet || git commit -m "chore: release v$(grep ''^version = '' pyproject.toml | cut -d ''"'' -f2)"'

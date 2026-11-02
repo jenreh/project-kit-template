@@ -24,4 +24,4 @@ tasks:
     desc: Run and verify locally built image
     cmds:
       - echo "🧪 Testing locally built image {{.IMAGE_NAME}}:latest"
-      - docker compose up --build --watch
+      - docker compose --env-file .env.docker up --build --watch

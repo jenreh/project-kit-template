@@ -23,3 +23,7 @@ tasks:
   run:prod:
     desc: Start the reflex web application in prod mode
     cmd: "{{.RUNNER}} reflex run --env prod --single-port"
+
+  admin:bootstrap:
+    desc: Create the first administrator from mn-admin-email and mn-admin-password
+    cmd: "{{.RUNNER}} python -m app.bootstrap_admin"

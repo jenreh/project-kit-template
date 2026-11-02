@@ -6,7 +6,7 @@ default_install_hook_types:
   - post-rewrite
 repos:
   - repo: https://github.com/astral-sh/uv-pre-commit
-    rev: 0.11.14
+    rev: 0.13.6
     hooks:
       - id: uv-sync
         args: ["--locked", "--all-packages"]
@@ -25,6 +25,7 @@ repos:
         exclude: '^\.(claude|agents?)/'
       - id: check-illegal-windows-names
       - id: check-merge-conflict
+      - id: detect-private-key
       - id: check-symlinks
       - id: check-toml
       - id: mixed-line-ending
@@ -32,14 +33,20 @@ repos:
       - id: name-tests-test
         args: ["--pytest-test-first"]
   - repo: https://github.com/gitleaks/gitleaks
-    rev: v8.30.0
+    rev: v8.30.1
     hooks:
       - id: gitleaks
+        args: ["--config=gitleaks.toml"]
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.15.13
+    rev: v0.17.3
     hooks:
       - id: ruff-format
         exclude: '^\.(claude|agents?)/'
       - id: ruff
         exclude: '^\.(claude|agents?)/'
         args: ["--fix"]
+  - repo: https://github.com/astral-sh/ty-pre-commit
+    rev: v0.0.95
+    hooks:
+      - id: ty
+        stages: [pre-commit]

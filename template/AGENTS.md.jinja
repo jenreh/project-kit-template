@@ -27,7 +27,7 @@
 <!-- plan:start
 goal: <one line clear goal>
 constraints:
-- Python 3.14; FastAPI; Pydantic 2.13; pydantic-settings;
+- Python 3.14; FastAPI; Pydantic 2.14; pydantic-settings;
 - logging: no f-strings in logger calls
 - files ≤ 1000 lines; apply design patterns where appropriate
 - minimal diff; add/adjust tests first
@@ -91,7 +91,7 @@ Prefer official docs; widen via web search for cross-version issues.
 
 ### Quality Gates
 
-- `task lint`, `task format`, `task typecheck`.
+- `task lint`, `task format`, `task typecheck`, `task audit`.
 - `task test` — coverage ≥ **80%**.
 
 ### Commit & PR
@@ -137,12 +137,20 @@ Key rules:
 
 ## 7) Security & Config
 
-- No credentials in code/history; `.env` local, SSM/Secrets Manager in prod.
-- Non-secret YAML (`config/devices.yaml`); env `__` override pattern.
-- Parameterized logs; no sensitive values.
+- No credentials in code/history; `.env` local, SSM/Secrets Manager/Key Vault in prod.
+- No default accounts or passwords, also not in migrations. Bind published ports to `127.0.0.1` unless a deployment needs more.
+- Non-secret YAML; env `__` override pattern.
+- Parameterized logs; no sensitive values. No SQL `echo` outside short debugging sessions.
 - `SecretStr` → `.get_secret_value()`.
-- HMAC Shared-Secret for AWS→home traffic (replay protection via timestamp).
+- Parameterized SQL only. GitHub event data reaches `run:` scripts through `env:` only.
+- Pin everything that executes: actions by SHA, images by version, hooks by frozen SHA.
 - Update vulnerable deps; document CVE-driven updates in commits & Memory.
+{%- if project_type == 'reflex' %}
+- UI gates (`requires_admin`) hide markup, they do not authorize. Every handler or REST route that touches protected data checks on the server: `@is_authenticated`, `@requires_admin`, `RequiredSession`.
+- Routes are default-deny. Add a route to `public_routes` only when it must work without a session.
+{%- endif %}
+
+See `SECURITY.md` for the deployment checklist.
 
 ---
 
@@ -184,6 +192,8 @@ Only the skills matching this project's configuration are listed below.
 | `reflex-testing-state` | Pytest unit tests for Reflex State — event handlers, computed vars, substates |
 | `reflex-docs` | Reflex.dev framework documentation |
 | `frontend-design` | Create distinctive, production-grade frontend interfaces |
+| `ui-ux-pro-max` | UI/UX design intelligence — styles, palettes, font pairings, UX and accessibility guidelines, charts |
+| `design-system` | Design token architecture (primitive → semantic → component), CSS variables, component specs |
 | `appkit-mantine-reference` | Full API for appkit_mantine components — inputs, layout, overlays, charts, data display, navigation |
 {%- endif %}
 {%- if project_type == 'reflex' or include_db %}

@@ -27,7 +27,7 @@ loggers:
     handlers: [console]
     propagate: 0
   rxconfig:
-    level: DEBUG
+    level: INFO
     handlers: [console]
     propagate: 0
   app:
@@ -43,6 +43,11 @@ loggers:
     handlers: [console]
     propagate: 0
   azure.core.pipeline.policies.http_logging_policy:
+    level: WARNING
+    handlers: [console]
+    propagate: 0
+  # INFO logs full request URLs, which can carry tokens in the query string.
+  httpx:
     level: WARNING
     handlers: [console]
     propagate: 0

@@ -14,6 +14,7 @@ gitleaks.toml
 AGENTS.md
 CLAUDE.md
 BRANCHING.md
+SECURITY.md
 spec
 
 # ─── Build / task meta (don't copy into the image) ───────────────────────────
@@ -55,6 +56,10 @@ tests
 # ─── Local env, logs, scratch ────────────────────────────────────────────────
 .env
 .env.*
+*.key
+*.p12
+*.pem
+*.pfx
 *.log
 *.sql
 *.db
@@ -64,9 +69,10 @@ tests
 # ─── Docs & infra (not needed at runtime) ────────────────────────────────────
 docs
 terraform
-{% if project_type == 'reflex' %}
+{%- if project_type == 'reflex' %}
+
 # ─── reflex.dev build artifacts ──────────────────────────────────────────────
 .web
 .states
 assets/external/*
-{% endif %}
+{%- endif %}

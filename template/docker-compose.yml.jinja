@@ -1,3 +1,7 @@
+# Run with: docker compose --env-file .env.docker up --build
+# Both services fail to start until .env.docker sets POSTGRES_PASSWORD and the mn-db-*
+# secrets (see .env.default). All ports are bound to loopback: this file is for local
+# testing, so put a TLS-terminating proxy in front of the app for anything else.
 services:
   {{ project_name }}-app:
     container_name: {{ project_name }}-app
@@ -5,25 +9,20 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    # Use the docker-specific env file (contains DB connection info for compose)
     env_file:
       - .env.docker
     depends_on:
-      - db
+      db:
+        condition: service_healthy
     # Put the app into the same network as the DB so it can reach the DB at host 'db'
     networks:
       - {{ project_name }}-network
-    # Optional explicit DB defaults (overridden by .env.docker if present)
-    environment:
-      - DATABASE_HOST=db
-      - DATABASE_PORT=5432
-      - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=postgres
-      - POSTGRES_DB={{ db_name }}
     ports:
-      - "3030:3030"
-      - "8080:8080"
-      - "80:80"
+      - "127.0.0.1:8080:8080"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     develop:
       watch:
         - action: sync
@@ -49,16 +48,22 @@ services:
 
   db:
     container_name: {{ project_name }}-db
-    image: pgvector/pgvector:pg15
+    image: pgvector/pgvector:0.8.7-pg18-trixie
     restart: unless-stopped
     volumes:
-      - postgres-data:/var/lib/postgresql/data
+      # PostgreSQL 18 images keep their data in a versioned subdirectory of this path.
+      - postgres-data:/var/lib/postgresql
     environment:
       POSTGRES_USER: postgres
       POSTGRES_DB: {{ db_name }}
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env.docker and pass --env-file .env.docker}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d {{ db_name }}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
     ports:
-      - 5433:5432
+      - "127.0.0.1:5433:5432"
     networks:
       - {{ project_name }}-network
 

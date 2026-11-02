@@ -13,6 +13,8 @@ cd my-project && task init
 
 `--trust` is required (post-gen tasks run `uv sync` and, when `include_skills`, vendor
 `jenreh/agent-skills` as a git subtree and wire `.agents/skills` + `.claude/skills`).
+`--trust` runs code from the template, so only use it with a template you trust. Add
+`--vcs-ref <tag>` to pin the version.
 
 ## `projectkit` shell helper (optional)
 
@@ -52,7 +54,7 @@ projectkit() {
 | `include_docker` | reflex→true | Dockerfile+compose (reflex) / docker task; ships `.dockerignore` |
 | `include_terraform` | false | `terraform/` scaffold + cloud deploy task |
 | `cloud_provider` | `azure` | asked when `include_terraform`; `azure` or `aws` (picks `deploy-azure.sh`/`deploy-aws.sh`) |
-| `include_docs` | python→true | VitePress `docs/` scaffold (templated `index.md` / `config.mts`) |
+| `include_docs` | python→true | `docs/` folder for plain Markdown (templated `index.md`) |
 | `include_graph` | false | GraphDB / runic hooks (see note) |
 | `include_skills` | true | install `jenreh/agent-skills` (git subtree → `.agents/agent-skills`, symlinked to `.agents/skills` + `.claude/skills`) |
 | `create_github_repo` | false | post-gen `gh repo create … --source=. --push` (needs authenticated `gh`) |
@@ -93,11 +95,22 @@ projectkit() {
   self-gates via its conditional filename, so only the unused deploy script is excluded.
 - **`.dockerignore`** ships whenever `include_docker` is on; its contents branch on
   `project_type` (reflex `.web`/build artifacts vs. plain Python).
+- **Security**: generated projects are secure by default and ship a `SECURITY.md` with a
+  deployment checklist. Reflex projects have **no default accounts**: `task admin:bootstrap`
+  creates the first admin from `mn-admin-email` / `mn-admin-password`. Updating an older
+  project with `copier update` adds a migration that deactivates the old shared `admin`
+  account if its password was never changed.
 
 ## Maintainers
 
 Skills are no longer vendored into this template. They live in
 [`jenreh/agent-skills`](https://github.com/jenreh/agent-skills) and are installed into each
-generated project as a git subtree by a post-gen task (`scripts/add-skills.sh`, run via the
-upstream one-liner). To change the skill set, edit the upstream repo — generated projects
-update with `git subtree pull` (see the post-gen message). No snapshot to refresh here.
+generated project as a git subtree by a post-gen task (`scripts/add-skills.sh`). To change
+the skill set, edit the upstream repo — generated projects update with `git subtree pull`
+(see the post-gen message). New projects vendor the commit in `agent_skills_ref` in
+`copier.yml`, so raise that value to roll out a new skill set.
+
+Versions of tools live in the templates: GitHub Actions by SHA in `.github/workflows/`, uv and
+bun by digest in `Dockerfile.jinja`, and go-task by checksum in `.devcontainer/Dockerfile`.
+Dependabot only updates them in generated projects, so refresh them here when you update the
+template.

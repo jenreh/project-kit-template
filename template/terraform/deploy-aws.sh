@@ -98,7 +98,7 @@ check_tfvars() {
             [[ "$kv" == "-var" ]] && continue
             key="${kv%%=*}"
             case "$key" in
-                *secret*|*password*|*token*|*credential*)
+                *secret*|*password*|*token*|*credential*|*key*)
                     echo -e "${CYAN}  ${key}=***${NC}"
                     ;;
                 *)
@@ -156,8 +156,10 @@ generate_backend_hcl() {
     bucket=$(read_tfvar "state_bucket_name")
     region=$(read_tfvar "aws_region")
 
-    [[ -n "$bucket" ]] || bucket="tiberio-tfstate-v2"
-    [[ -n "$region" ]] || region="eu-west-1"
+    # No fallback names: the state holds secrets and must only ever go to a
+    # bucket that this project owns.
+    [[ -n "$bucket" ]] || { print_error "Set state_bucket_name in your tfvars"; exit 1; }
+    [[ -n "$region" ]] || { print_error "Set aws_region in your tfvars"; exit 1; }
 
     local hcl_file="$TERRAFORM_DIR/backend.prod.hcl"
     cat > "$hcl_file" <<EOF
@@ -192,6 +194,7 @@ run_bootstrap() {
 
     print_step "Applying bootstrap configuration"
     terraform apply bootstrap.tfplan
+    rm -f bootstrap.tfplan # plans contain secrets in clear text
     print_success "Bootstrap phase completed successfully!"
 
     print_step "Writing backend configuration"
@@ -235,6 +238,7 @@ run_migrate() {
     [[ "$response" =~ ^([yY][eE][sS]|[yY])$ ]] || { print_warning "Cancelled."; exit 0; }
 
     terraform apply main.tfplan
+    rm -f main.tfplan # plans contain secrets in clear text
     print_success "Main infrastructure deployed successfully!"
     terraform output deployment_summary
 }
