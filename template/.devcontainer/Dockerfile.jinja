@@ -1,0 +1,82 @@
+ARG VARIANT=3.14-trixie
+FROM mcr.microsoft.com/devcontainers/python:${VARIANT} AS base
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONUNBUFFERED=1
+
+# The base image can ship a stale Yarn apt repo whose GPG key has expired, which
+# makes `apt-get update` fail (exit 100) and breaks devcontainer feature installs
+# (e.g. common-utils). We don't use this repo, so remove it.
+RUN rm -f /etc/apt/sources.list.d/yarn.list
+
+# Install uv (Astral) — Python package/project manager
+COPY --from=ghcr.io/astral-sh/uv:0.13.8@sha256:5cc1805e2426484abca4ad46ea783bab281fdb225fd82d8ce6d66a81254bac85 /uv /uvx /usr/local/bin/
+
+# Install go-task — task runner used via Taskfile.dist.yml. The release archive is
+# verified against a pinned checksum instead of piping an installer into a shell.
+ARG TASK_VERSION=3.54.0
+RUN set -eu; \
+    arch="$(dpkg --print-architecture)"; \
+    case "$arch" in \
+        amd64) sha256=680859dbb4d881a9c72d4d9a8f510825450849af8567deacd7302c01124416fb ;; \
+        arm64) sha256=d7189d439d4a6058e39e1b2acd7c8b27acd4856691b408f23b242e4294e1df5b ;; \
+        *) echo "Unsupported architecture: $arch" >&2; exit 1 ;; \
+    esac; \
+    curl --fail --silent --show-error --location --output /tmp/task.tar.gz \
+        "https://github.com/go-task/task/releases/download/v${TASK_VERSION}/task_linux_${arch}.tar.gz"; \
+    echo "$sha256  /tmp/task.tar.gz" | sha256sum --check --strict -; \
+    tar -xzf /tmp/task.tar.gz -C /usr/local/bin task; \
+    rm /tmp/task.tar.gz
+
+# Shell: antidote plugin manager, starship prompt, fzf and zoxide (Debian's are too
+# old). The plugins are listed in .devcontainer/.zsh_plugins.txt. Archives are
+# verified against pinned checksums; antidote is cloned at a pinned commit.
+ARG FZF_VERSION=0.75.0
+ARG ZOXIDE_VERSION=0.10.0
+ARG STARSHIP_VERSION=1.27.0
+ARG ANTIDOTE_COMMIT=9bb69ab99c6f05d6e6ae237f7ce222eeeb5b4a14
+RUN set -eu; \
+    arch="$(dpkg --print-architecture)"; \
+    case "$arch" in \
+        amd64) triple=x86_64-unknown-linux-musl; \
+               fzf_sha=0d6640f83582d991cf429754baad64b07e3a4e439a6019670f4b91da1314141c; \
+               zoxide_sha=2d93385b99f3e82cf2701609a1bffcad863fbeb75aa3fe7eb6be4d29be68b1ae; \
+               starship_sha=10c8eb4cb3b761d9bf59ea828444c2dab36c900b7d69a69e08814b286969df89 ;; \
+        arm64) triple=aarch64-unknown-linux-musl; \
+               fzf_sha=bd0717badb6a5620387e014bb94209aac4d9eab6ab77b5348eabb0833aeb4d59; \
+               zoxide_sha=f1f16c5d6298d63dee467eedea1cdcd8490e43e493bea43acd416dc9033ef641; \
+               starship_sha=341f5cbf24699fa0b27ec88965ad25f862ea09e15d35a543fd6ffdff1d2aa00d ;; \
+        *) echo "Unsupported architecture: $arch" >&2; exit 1 ;; \
+    esac; \
+    fetch() { \
+        curl --fail --silent --show-error --location --output /tmp/tool.tar.gz "$1"; \
+        echo "$2  /tmp/tool.tar.gz" | sha256sum --check --strict -; \
+        tar -xzf /tmp/tool.tar.gz -C /usr/local/bin "$3"; \
+        rm /tmp/tool.tar.gz; \
+    }; \
+    fetch "https://github.com/junegunn/fzf/releases/download/v${FZF_VERSION}/fzf-${FZF_VERSION}-linux_${arch}.tar.gz" "$fzf_sha" fzf; \
+    fetch "https://github.com/ajeetdsouza/zoxide/releases/download/v${ZOXIDE_VERSION}/zoxide-${ZOXIDE_VERSION}-${triple}.tar.gz" "$zoxide_sha" zoxide; \
+    fetch "https://github.com/starship/starship/releases/download/v${STARSHIP_VERSION}/starship-${triple}.tar.gz" "$starship_sha" starship; \
+    git clone --quiet https://github.com/mattmc3/antidote.git /usr/local/share/antidote; \
+    git -C /usr/local/share/antidote checkout --quiet "$ANTIDOTE_COMMIT"
+
+# State that survives rebuilds lives in the dev-state volume, mounted at ~/.persist
+# (docker-compose.yml): uv, pre-commit and antidote caches and uv-managed Python and
+# tools{% if coding_agents %}, plus the logins and plugins of the agent CLIs{% endif %}.
+# A new volume copies the image's folders and their owner, so the subfolders exist
+# on first start; the home paths are symlinks into it.
+ARG PERSIST=/home/vscode/.persist
+RUN set -eu; \
+    mkdir -p /home/vscode/.local/share; \
+    link() { \
+        mkdir -p "${PERSIST}/$1"; \
+        rm -rf "/home/vscode/$2"; \
+        ln -s "${PERSIST}/$1" "/home/vscode/$2"; \
+        chown -h vscode:vscode "/home/vscode/$2"; \
+    }; \
+    link cache .cache; \
+    link uv .local/share/uv; \
+{%- for agent in coding_agents %}
+    link {{ agent }} .{{ agent }}; \
+{%- endfor %}
+    chown -R vscode:vscode "${PERSIST}" /home/vscode/.local

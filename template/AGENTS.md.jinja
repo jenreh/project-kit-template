@@ -91,7 +91,8 @@ Prefer official docs; widen via web search for cross-version issues.
 
 ### Quality Gates
 
-- `task lint`, `task format`, `task typecheck`, `task audit`.
+- `task lint` (format + typecheck), `task format`, `task typecheck` (ty only), `task audit` (uv audit).
+- `task upgrade` upgrades all dependencies to their latest allowed versions.
 - `task test` — coverage ≥ **80%**.
 
 ### Commit & PR
@@ -168,7 +169,7 @@ use **code-review** skill and ensure:
 
 - [ ] Tests added/updated; all green
 - [ ] Coverage ≥ 80%
-- [ ] `task format && task lint && task typecheck` pass
+- [ ] task lint` pass
 - [ ] No file > 1000 lines
 - [ ] Clean architecture, no code smells, used **python-clean-code** principles
 - [ ] Migrations reviewed & documented
@@ -177,9 +178,25 @@ use **code-review** skill and ensure:
 
 ---
 
-## 10) Important Skills
+{% set plugins = agent_plugins if coding_agents else [] %}## 10) Important Skills
 
-Only the skills matching this project's configuration are listed below.
+Project-specific skills live in `.agents/skills/` (`.claude/skills` links to it).
+{%- if plugins %}
+General skills come from the plugin marketplaces in `.claude/settings.json`
+(`task agents:plugins` installs them):{{ "\n" }}
+{%- if 'jenreh' in plugins %}
+- **jenreh/agent-skills**: the `jenreh-*` plugins listed below.
+{%- endif %}
+{%- if 'superpowers' in plugins %}
+- **obra/superpowers**: brainstorming, writing and executing plans, TDD, systematic debugging.
+{%- endif %}
+{%- if 'mattpocock' in plugins %}
+- **mattpocock/skills**: TDD, domain modeling, codebase design, code review, prototyping.
+{%- endif %}
+{%- endif %}
+{%- if 'jenreh' in plugins %}
+
+Only the jenreh skills matching this project's configuration are listed below.
 
 | Skill | Purpose |
 | --- | --- |
@@ -216,4 +233,5 @@ Only the skills matching this project's configuration are listed below.
 {%- if include_graph %}
 | `runic-migrate` | Author and apply graph schema migrations |
 | `runic-ogm` | Object Graph Mapping for Cypher graph databases, query builder, sessions, relations |
+{%- endif %}
 {%- endif %}

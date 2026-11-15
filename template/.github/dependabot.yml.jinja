@@ -1,4 +1,8 @@
-# Enhanced configuration with more options
+{%- set docker_dirs = [] -%}
+{%- if project_type == 'reflex' and include_docker %}{% set docker_dirs = docker_dirs + ['/'] %}{% endif -%}
+{%- if use_devcontainer %}{% set docker_dirs = docker_dirs + ['/.devcontainer'] %}{% endif -%}
+# Version updates wait out a cooldown, so a freshly compromised release has time to
+# be found and pulled first. Security updates ignore the cooldown.
 version: 2
 updates:
   - package-ecosystem: "github-actions"
@@ -8,8 +12,6 @@ updates:
       day: "monday"
       time: "09:00"
       timezone: "Europe/Berlin"
-    # Security updates ignore the cooldown, version updates wait out freshly
-    # compromised releases.
     cooldown:
       default-days: 7
     open-pull-requests-limit: 5
@@ -31,6 +33,7 @@ updates:
     labels:
       - "dependencies"
       - "pre-commit"
+{%- if use_devcontainer %}
 
   - package-ecosystem: "devcontainers"
     directory: "/"
@@ -45,13 +48,15 @@ updates:
     labels:
       - "dependencies"
       - "devcontainer"
-    assignees:
-      - "dependabot"
+{%- endif %}
+{%- if docker_dirs %}
+{%- for ecosystem in ['docker', 'docker-compose'] %}
 
-  - package-ecosystem: "docker"
+  - package-ecosystem: "{{ ecosystem }}"
     directories:
-      - "/"
-      - "/.devcontainer"
+{%- for dir in docker_dirs %}
+      - "{{ dir }}"
+{%- endfor %}
     schedule:
       interval: "weekly"
       day: "tuesday"
@@ -63,24 +68,8 @@ updates:
     labels:
       - "dependencies"
       - "docker"
-    assignees:
-      - "dependabot"
-
-  - package-ecosystem: "docker-compose"
-    directories:
-      - "/"
-      - "/.devcontainer"
-    schedule:
-      interval: "weekly"
-      day: "tuesday"
-      time: "09:00"
-      timezone: "Europe/Berlin"
-    cooldown:
-      default-days: 7
-    open-pull-requests-limit: 3
-    labels:
-      - "dependencies"
-      - "docker"
+{%- endfor %}
+{%- endif %}
 
   - package-ecosystem: "uv"
     directory: "/"
@@ -92,8 +81,6 @@ updates:
     labels:
       - "dependencies"
       - "uv"
-    assignees:
-      - "dependabot"
     # Group minor and patch updates together
     groups:
       python-minor-patch:

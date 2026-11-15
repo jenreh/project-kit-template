@@ -3,12 +3,18 @@ services:
     container_name: {{ project_name }}-dev
     image: {{ project_name }}/ui-dev
     build:
-      context: ..
-      dockerfile: .devcontainer/Dockerfile
+      # The Dockerfile copies nothing, so only send this folder as build context
+      context: .
+      dockerfile: Dockerfile
       args:
         VARIANT: {{ python_version }}-trixie
     volumes:
-      - ../..:/workspaces:rw,cached
+      # Only this project: sibling repos and their .env files stay out of reach of
+      # the tools and coding agents running in the container.
+      - ..:/workspaces/{{ project_name }}:rw,cached
+      # Survives rebuilds: uv, pre-commit and antidote caches, uv-managed Python and
+      # tools{% if coding_agents %}, {{ coding_agents | join('/') }} logins and plugins{% endif %} (symlinked, see Dockerfile)
+      - dev-state:/home/vscode/.persist
     command: sleep infinity
     networks:
       - {{ project_name }}-network
@@ -35,9 +41,11 @@ services:
 networks:
   {{ project_name }}-network:
     driver: bridge
-{%- if project_type == 'reflex' or include_db %}
 
 volumes:
+  dev-state:
+    name: {{ project_name }}-dev-state
+{%- if project_type == 'reflex' or include_db %}
   dev-postgres-data:
     name: {{ project_name }}-dev-postgres-data
 {%- endif %}

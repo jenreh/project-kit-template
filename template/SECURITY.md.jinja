@@ -7,11 +7,15 @@ this repository, or contact the maintainers directly.
 
 ## Secure defaults
 
-- Secrets come from the secret provider (`.env` locally). `gitleaks` scans every commit
+- Secrets come from the secret provider (`.env` locally). `betterleaks` scans every commit
   and pull request.
 - Dependencies are locked in `uv.lock` and audited by `task audit` and in CI. GitHub
-  Actions, tool images and pre-commit hooks are pinned to immutable versions, and
-  Dependabot keeps them current.
+  Actions and pre-commit hooks are pinned to commit SHAs, tool downloads to checksums,
+  and Dependabot keeps them current after a 7-day cooldown.
+{%- if use_devcontainer %}
+- The dev container only mounts this project. It gets the host Docker daemon only if
+  you chose `devcontainer_docker`, because that is root access to the host.
+{%- endif %}
 {%- if project_type == 'reflex' %}
 - No default accounts exist. `task admin:bootstrap` creates the first administrator
   from `mn-admin-email` and `mn-admin-password`, and that password must be changed at
@@ -40,5 +44,7 @@ this repository, or contact the maintainers directly.
 - [ ] Keep production secrets in a secret manager, not in files on the host.
 - [ ] Run the service as an unprivileged user.
 {%- endif %}
-- [ ] Enable branch protection, and require the `00 Security checks` workflow.
-- [ ] Turn on Dependabot security updates and private vulnerability reporting.
+- [ ] Check the GitHub baseline: `scripts/github_publish.py` (or `python scripts/github_harden.py`
+      for an existing repo) sets up branch protection with the `00 Security checks` jobs
+      required, Dependabot, secret scanning with push protection, CodeQL and private
+      vulnerability reporting. Its output lists what your plan does not support.

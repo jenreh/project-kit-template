@@ -93,6 +93,9 @@
   },
   "python-envs.defaultPackageManager": "ms-python.python:uv",
   "chat.agent.maxRequests": 100,
+{%- if 'copilot' in coding_agents %}
+  "chat.plugins.enabled": true,
+{%- endif %}
   "[jsonc]": {
     "editor.defaultFormatter": "vscode.json-language-features"
   },

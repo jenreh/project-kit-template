@@ -1,0 +1,95 @@
+{%- set plugins = agent_plugins if coding_agents else [] %}
+{%- set marketplaces = [] %}
+{%- set enabled = [] %}
+{%- if 'jenreh' in plugins %}
+{%-   set marketplaces = marketplaces + [('jenreh', 'jenreh/agent-skills')] %}
+{%-   set enabled = enabled + ['jenreh-core@jenreh', 'jenreh-python@jenreh', 'jenreh-tools@jenreh'] %}
+{%-   if project_type == 'reflex' %}
+{%-     set enabled = enabled + ['jenreh-design@jenreh', 'jenreh-reflex@jenreh'] %}
+{%-   endif %}
+{%-   if include_terraform %}
+{%-     set enabled = enabled + ['jenreh-terraform@jenreh'] %}
+{%-   endif %}
+{%-   if include_graph %}
+{%-     set enabled = enabled + ['jenreh-graphdb@jenreh'] %}
+{%-   endif %}
+{%- endif %}
+{%- if 'superpowers' in plugins %}
+{%-   set marketplaces = marketplaces + [('superpowers-marketplace', 'obra/superpowers-marketplace')] %}
+{%-   set enabled = enabled + ['superpowers@superpowers-marketplace'] %}
+{%- endif %}
+{%- if 'mattpocock' in plugins %}
+{%-   set marketplaces = marketplaces + [('mattpocock', 'mattpocock/skills')] %}
+{%-   set enabled = enabled + ['mattpocock-skills@mattpocock'] %}
+{%- endif %}
+{
+{%- if marketplaces %}
+  "extraKnownMarketplaces": {
+{%- for name, repo in marketplaces %}
+    "{{ name }}": {
+      "source": {
+        "source": "github",
+        "repo": "{{ repo }}"
+      }
+    }{{ "," if not loop.last }}
+{%- endfor %}
+  },
+  "enabledPlugins": {
+{%- for plugin in enabled %}
+    "{{ plugin }}": true{{ "," if not loop.last }}
+{%- endfor %}
+  },
+{%- endif %}
+  "permissions": {
+    "allow": [
+      "Bash(pytest)",
+      "Bash(pytest *)",
+      "Bash(uv sync)",
+      "Bash(uv sync *)",
+      "Bash(uv lock)",
+      "Bash(uv lock *)",
+      "Bash(uv tree)",
+      "Bash(uv tree *)",
+      "Bash(uv audit)",
+      "Bash(uv audit *)",
+      "Bash(uv run pytest)",
+      "Bash(uv run pytest *)",
+      "Bash(uv run ruff *)",
+      "Bash(uv run ty *)",
+      "Bash(git stash *)",
+      "Bash(task)",
+      "Bash(task --list)",
+      "Bash(task test)",
+      "Bash(task test *)",
+      "Bash(task lint)",
+      "Bash(task format)",
+      "Bash(task typecheck)",
+      "Bash(task audit)",
+      "Bash(grep *)",
+      "Bash(ls *)"
+{%- if 'jenreh' in plugins %},
+      "Skill(jenreh-tools:create-readme)",
+      "Skill(jenreh-python:python-coding)"
+{%- if project_type == 'reflex' %},
+      "Skill(jenreh-design:frontend-design)",
+      "Skill(jenreh-design:ui-ux-pro-max)",
+      "Skill(jenreh-design:design-system)"
+{%- endif %}
+{%- endif %}
+    ],
+    "deny": [
+      "Read(./.env)",
+      "Read(./.env.docker)",
+      "Read(./.env.local)",
+      "Read(./.env.prod)",
+      "Read(**/*.key)",
+      "Read(**/*.pem)",
+      "Read(**/*.tfstate)",
+      "Read(**/*.tfstate.*)",
+      "Read(**/*.tfvars)",
+      "Read(~/.aws/**)",
+      "Read(~/.azure/**)",
+      "Read(~/.ssh/**)"
+    ]
+  }
+}

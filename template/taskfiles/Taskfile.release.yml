@@ -23,7 +23,18 @@ tasks:
     cmds:
       - uv run bump-my-version bump {{.CLI_ARGS | default "patch"}}
       - uv sync
-      - git add -A
-      - 'git diff --cached --quiet || git commit -m "chore: release v$(grep ''^version = '' pyproject.toml | cut -d ''"'' -f2)"'
+      # Only the bumped, tracked files: never sweep stray untracked files into a release.
+      - git add -u
+      # A separate task, so VERSION is read after the bump.
+      - task: publish
+
+  publish:
+    internal: true
+    vars:
+      VERSION:
+        sh: uv version --short
+    cmds:
+      - 'git diff --cached --quiet || git commit -m "chore: release v{{.VERSION}}"'
       - git push
-      - 'gh release create v$(grep ''^version = '' pyproject.toml | cut -d ''"'' -f2) --generate-notes'
+      # Tag the commit just pushed, not whatever the default branch points to.
+      - gh release create v{{.VERSION}} --generate-notes --target "$(git rev-parse HEAD)"

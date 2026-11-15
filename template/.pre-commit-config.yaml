@@ -1,4 +1,3 @@
-exclude: '^\.github/skills/'
 default_install_hook_types:
   - pre-commit
   - post-checkout
@@ -6,13 +5,13 @@ default_install_hook_types:
   - post-rewrite
 repos:
   - repo: https://github.com/astral-sh/uv-pre-commit
-    rev: 0.13.6
+    rev: b9d5257d60a86c20fd9a3919d548e08ba5ab905b  # frozen: 0.13.8
     hooks:
       - id: uv-sync
         args: ["--locked", "--all-packages"]
       - id: uv-lock
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v6.0.0
+    rev: 3e8a8703264a2f4a69428a0aa4dcb512790b2c8c  # frozen: v6.0.0
     hooks:
       - id: check-yaml
       - id: end-of-file-fixer
@@ -32,13 +31,16 @@ repos:
         args: ["--fix=lf"]
       - id: name-tests-test
         args: ["--pytest-test-first"]
-  - repo: https://github.com/gitleaks/gitleaks
-    rev: v8.30.1
+  # Every rev is a commit SHA, so a moved tag cannot change the hook code. Dependabot
+  # proposes updates after a cooldown; do not run `pre-commit autoupdate` blindly.
+  # Betterleaks stays on the stable v1 line (keep it in sync with the CI job).
+  - repo: https://github.com/betterleaks/betterleaks
+    rev: 39d5bdcf34db54e944facac5cf6e8b03db5e2b99  # frozen: v1.10.1
     hooks:
-      - id: gitleaks
-        args: ["--config=.gitleaks.toml"]
+      - id: betterleaks
+        args: ["--config=.betterleaks.toml"]
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.17.3
+    rev: ef6cf06c079dd6b299dfc720b0f14400c9d168e1  # frozen: v0.17.5
     hooks:
       - id: ruff-format
         exclude: '^\.(claude|agents?)/'
@@ -46,7 +48,7 @@ repos:
         exclude: '^\.(claude|agents?)/'
         args: ["--fix"]
   - repo: https://github.com/astral-sh/ty-pre-commit
-    rev: v0.0.95
+    rev: d598b95ef3cba3cf3a31c40620c3481ae978e4eb  # frozen: v0.0.104
     hooks:
       - id: ty
         stages: [pre-commit]

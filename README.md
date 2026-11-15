@@ -11,9 +11,8 @@ copier copy --trust gh:jenreh/kit-template my-project
 cd my-project && task init
 ```
 
-`--trust` is required (post-gen tasks run `uv sync` and, when `include_skills`, vendor
-`jenreh/agent-skills` as a git subtree and wire `.agents/skills` + `.claude/skills`).
-`--trust` runs code from the template, so only use it with a template you trust. Add
+`--trust` is required (post-gen tasks run `uv sync`, and with `create_github_repo` also
+`scripts/github_publish.py`). `--trust` runs code from the template, so only use it with a template you trust. Add
 `--vcs-ref <tag>` to pin the version.
 
 ## `projectkit` shell helper (optional)
@@ -52,20 +51,48 @@ projectkit() {
 | `db_name` | `{{ project_name }}-db` | asked for reflex / python+db |
 | `use_devcontainer` | true | any project type (db service included only when there's a DB) |
 | `include_docker` | reflex→true | Dockerfile+compose (reflex) / docker task; ships `.dockerignore` |
+| `devcontainer_docker` | false | asked with devcontainer + docker: mounts the host Docker daemon into the dev container (docker-outside-of-docker). That is root on the host for everything in the container, agents included |
 | `include_terraform` | false | `terraform/` scaffold + cloud deploy task |
-| `cloud_provider` | `azure` | asked when `include_terraform`; `azure` or `aws` (picks `deploy-azure.sh`/`deploy-aws.sh`) |
+| `cloud_provider` | `azure` | asked when `include_terraform`; `azure` or `aws` (renders `terraform/deploy.py` for it) |
 | `include_docs` | python→true | `docs/` folder for plain Markdown (templated `index.md`) |
 | `include_graph` | false | GraphDB / runic hooks (see note) |
-| `include_skills` | true | install `jenreh/agent-skills` (git subtree → `.agents/agent-skills`, symlinked to `.agents/skills` + `.claude/skills`) |
-| `create_github_repo` | false | post-gen `gh repo create … --source=. --push` (needs authenticated `gh`) |
+| `coding_agents` | `[claude]` | multi-select: `claude` (Claude Code), `copilot` (GitHub Copilot), `codex` (OpenAI Codex). Adds each CLI and VS Code extension to the dev container, persists its login, and installs the plugins into it |
+| `agent_plugins` | `[jenreh]` | multi-select, asked when an agent is chosen: `jenreh` ([jenreh/agent-skills](https://github.com/jenreh/agent-skills)), `superpowers` ([obra/superpowers](https://github.com/obra/superpowers)), `mattpocock` ([mattpocock/skills](https://github.com/mattpocock/skills)) |
+| `create_github_repo` | false | post-gen `scripts/github_publish.py`: creates the GitHub repo, pushes, and applies rulesets + security (needs an authenticated `gh`) |
 | `github_visibility` | `private` | asked when `create_github_repo`; `private` or `public` |
 
 ## How it works
 
-- **Shared base** is always generated (pyproject, ruff/mypy/pytest, pre-commit, gitleaks,
-  AGENTS/CLAUDE, `qa`/`release` tasks). When `include_skills` is on, a post-gen
-  task vendors `jenreh/agent-skills` as a git subtree (it is not copied from the template).
-  When `create_github_repo` is on, a final post-gen task commits and runs `gh repo create`.
+- **Shared base** is always generated (pyproject, ruff/mypy/pytest, pre-commit, betterleaks,
+  AGENTS/CLAUDE, `qa`/`release` tasks, `.agents/skills/` for project skills with
+  `.claude/skills` linked to it). When `create_github_repo` is on, the last post-gen tasks
+  commit and run `scripts/github_publish.py`.
+- **GitHub baseline**: repository settings are not files, so no template (Copier or a
+  GitHub template repo) can copy them. The project keeps them as code instead:
+  `.github/rulesets/*.json` and `scripts/github_harden.py`, both updated by
+  `copier update` like every other file. `scripts/github_publish.py` runs
+  `gh repo create --source . --push` and then the harden script. That sets up two
+  rulesets (the default branch only changes through a reviewed pull request with the
+  `00 Security checks` jobs required and a CodeQL gate; new branches must follow
+  `BRANCHING.md`), Dependabot alerts and security updates, Advanced Security, secret
+  scanning with push protection, CodeQL default setup, private vulnerability reporting,
+  and a read-only `GITHUB_TOKEN`. For a project generated without `create_github_repo`,
+  commit and run `python scripts/github_publish.py owner/repo private` later. Public repos get
+  all of it for free; private repos need a paid plan for rulesets and GitHub Secret
+  Protection / Code Security for secret and code scanning. The script skips what is
+  missing and prints what is on. Run `python scripts/github_harden.py` again after
+  changing a ruleset JSON; it updates everything in place.
+- **Agent plugins**: `.claude/settings.json` is the single list of plugin marketplaces
+  (`extraKnownMarketplaces`) and plugins (`enabledPlugins`). Claude Code offers them when
+  the folder is trusted, and VS Code Copilot reads the same file (`chat.plugins.enabled`).
+  `scripts/install_agent_plugins.py` (`task agents:plugins`) installs them into the chosen
+  agent CLIs; `task init` and every dev container attach run it. The jenreh plugins follow
+  the answers: `jenreh-core`, `-python`, `-tools` always, `-reflex` + `-design` for reflex,
+  `-terraform` with `include_terraform`, `-graphdb` with `include_graph`.
+- **Dev container**: zsh with antidote (Zephyr + `jenreh/zsh-utils`) and starship; fzf,
+  zoxide, go-task and uv pinned in `.devcontainer/Dockerfile`. A `<project>-dev-state`
+  volume at `~/.persist` keeps the uv/pre-commit/antidote caches, uv-managed Python and the
+  agent logins and plugins (`~/.claude`, `~/.copilot`, `~/.codex`) across rebuilds.
 - **`project_type: reflex`** adds the reflex layer: `app/`, `alembic/`, `rxconfig.py`,
   `docker-compose.yml`, `configuration/`, `assets/`, `components/`, `.devcontainer/`,
   `Dockerfile`, reflex deps, `Taskfile.reflex.yml`.
@@ -83,16 +110,19 @@ projectkit() {
 - `Taskfile*.yml` are **not** Jinja-rendered (go-task `{{.VAR}}` would collide); `PROJECT` is
   derived from `pyproject.toml` at runtime.
 - **`include_graph`**: adds `runic-py` (graph schema migrations + OGM for Cypher DBs) to
-  dependencies and surfaces the `runic-*` skills in AGENTS.md (the skills themselves ship in
-  the `agent-skills` subtree when `include_skills` is on). (Note: `include_graph` relaxes the
+  dependencies and surfaces the `runic-*` skills in AGENTS.md (the skills themselves come
+  with the `jenreh-graphdb` plugin when `jenreh` is in `agent_plugins`). (Note: `include_graph` relaxes the
   `typer` pin to `>=0.26.0`, which `runic-py` requires.)
 - **Alembic** works for both archetypes: `alembic/env.py` is rendered as the appkit-coupled
   variant for reflex, or a pure SQLAlchemy variant (reads `$DATABASE_URL` / `alembic.ini`) for
   Python — so `task db:*` is usable in both.
 - `task test` for **reflex** needs Postgres + `.env` secrets (the app boots against a DB).
-- **`include_terraform`**: ships the `terraform/` scaffold. `cloud_provider` selects which
-  deploy script is kept (`deploy-azure.sh` or `deploy-aws.sh`); the provider Taskfile
-  self-gates via its conditional filename, so only the unused deploy script is excluded.
+- **`include_terraform`**: ships the `terraform/` scaffold. `terraform/deploy.py` is one
+  script for both clouds; `cloud_provider` sets its `CLOUD` constant (change it to switch
+  clouds later). It checks the cloud login itself, so the `dev:`/`prod:` tasks just call it.
+- **Scripts**: scripts that run on the host (`scripts/*.py`, `terraform/deploy.py`) are
+  standard-library Python, so they run the same on Linux, macOS and Windows. Scripts that
+  only run inside a container (`start.sh`, `.devcontainer/post-create.sh`) stay bash.
 - **`.dockerignore`** ships whenever `include_docker` is on; its contents branch on
   `project_type` (reflex `.web`/build artifacts vs. plain Python).
 - **Security**: generated projects are secure by default and ship a `SECURITY.md` with a
@@ -103,14 +133,18 @@ projectkit() {
 
 ## Maintainers
 
-Skills are no longer vendored into this template. They live in
-[`jenreh/agent-skills`](https://github.com/jenreh/agent-skills) and are installed into each
-generated project as a git subtree by a post-gen task (`scripts/add-skills.sh`). To change
-the skill set, edit the upstream repo — generated projects update with `git subtree pull`
-(see the post-gen message). New projects vendor the commit in `agent_skills_ref` in
-`copier.yml`, so raise that value to roll out a new skill set.
+Skills are not vendored into this template or into generated projects. They come from
+plugin marketplaces, which the agent CLIs keep up to date. To change the skill set, edit
+the upstream marketplace. To offer another marketplace, add a choice to `agent_plugins` in
+`copier.yml` and its entries to `template/.claude/settings.json.jinja`.
+
+`obra/superpowers` is installed from its Claude Code marketplace
+[`obra/superpowers-marketplace`](https://github.com/obra/superpowers-marketplace)
+(`superpowers@superpowers-marketplace`), which the upstream README recommends for Claude
+Code and Copilot CLI. The marketplace inside `obra/superpowers` itself is the dev channel.
 
 Versions of tools live in the templates: GitHub Actions by SHA in `.github/workflows/`, uv and
-bun by digest in `Dockerfile.jinja`, and go-task by checksum in `.devcontainer/Dockerfile`.
+bun by digest in `Dockerfile.jinja`, go-task, fzf, zoxide and starship by checksum and
+antidote by commit in `.devcontainer/Dockerfile.jinja`.
 Dependabot only updates them in generated projects, so refresh them here when you update the
 template.

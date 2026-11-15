@@ -5,11 +5,17 @@
 	"dockerComposeFile": "docker-compose.yml",
 	"service": "app",
 	"remoteUser": "vscode",
-	"workspaceFolder": "/workspaces/${localWorkspaceFolderBasename}",
+	"workspaceFolder": "/workspaces/{{ project_name }}",
 	"containerEnv": {
-		"WORKSPACE": "/workspaces/${localWorkspaceFolderBasename}",
+		"WORKSPACE": "/workspaces/{{ project_name }}",
 		"UV_PROJECT_ENVIRONMENT": ".venv",
-		"VIRTUAL_ENV": "/workspaces/${localWorkspaceFolderBasename}/.venv"
+		"VIRTUAL_ENV": "/workspaces/{{ project_name }}/.venv",
+		// The uv cache volume and the workspace are different filesystems
+		"UV_LINK_MODE": "copy"
+{%- if 'claude' in coding_agents %},
+		// Keep .claude.json inside the persisted ~/.claude volume
+		"CLAUDE_CONFIG_DIR": "/home/vscode/.claude"
+{%- endif %}
 	},
 	"customizations": {
 		"vscode": {
@@ -20,12 +26,17 @@
 			"extensions": [
 				"-dbaeumer.vscode-eslint",
 				"-ms-python.autopep8", // disabled because we are using ruff
+{%- if 'claude' in coding_agents %}
+				"Anthropic.claude-code",
+{%- endif %}
 				"astral-sh.ty",
 				"charliermarsh.ruff",
 				"esbenp.prettier-vscode",
 				"fill-labs.dependi",
+{%- if 'copilot' in coding_agents %}
 				"GitHub.copilot-chat",
 				"GitHub.copilot",
+{%- endif %}
 				"GitHub.remotehub",
 				"github.vscode-github-actions",
 				"GitHub.vscode-pull-request-github",
@@ -38,7 +49,7 @@
 				"amazonwebservices.aws-toolkit-vscode",
 {%- endif %}
 {%- endif %}
-{%- if include_docker %}
+{%- if devcontainer_docker %}
 				"ms-azuretools.vscode-containers",
 {%- endif %}
 {%- if project_type == 'reflex' or include_db %}
@@ -47,6 +58,9 @@
 				"ms-python.python",
 				"mutantdino.resourcemonitor",
 				"naumovs.color-highlight",
+{%- if 'codex' in coding_agents %}
+				"openai.chatgpt",
+{%- endif %}
 				"redhat.vscode-yaml",
 				"sndst00m.vscode-native-svg-preview",
 				"tamasfe.even-better-toml",
@@ -60,12 +74,20 @@
 	"features": {
 		"ghcr.io/devcontainers/features/common-utils:2.7.1": {
 			"configureZshAsDefaultShell": true,
+			"installOhMyZsh": false,
+			"installOhMyZshConfig": false,
 			"username": "vscode"
 		},
 		"ghcr.io/devcontainers/features/git:1.3.8": {},
 		"ghcr.io/devcontainers/features/github-cli:1.1.3": {},
-{%- if include_docker %}
-		"ghcr.io/devcontainers/features/docker-outside-of-docker:1.10.1": {},
+{%- if 'claude' in coding_agents %}
+		"ghcr.io/anthropics/devcontainer-features/claude-code:1.0.5": {},
+{%- endif %}
+{%- if 'copilot' in coding_agents %}
+		"ghcr.io/devcontainers/features/copilot-cli:1.1.4": {},
+{%- endif %}
+{%- if devcontainer_docker %}
+		"ghcr.io/devcontainers/features/docker-outside-of-docker:1.10.2": {},
 {%- endif %}
 {%- if include_terraform %}
 {%- if cloud_provider == 'azure' %}
@@ -78,7 +100,7 @@
 			"installTFsec": "true"
 		},
 {%- endif %}
-		"ghcr.io/devcontainers/features/node:2.1.1": {
+		"ghcr.io/devcontainers/features/node:2.1.2": {
 			"version": "24"
 		}
 	},
@@ -87,5 +109,8 @@
 	},
 	"postAttachCommand": {
 		"install dependencies": "uv sync"
+{%- if coding_agents %},
+		"install agent plugins": "task agents:plugins"
+{%- endif %}
 	}
 }

@@ -1,0 +1,48 @@
+# Betterleaks config for this project.
+#
+# Pinned to the Betterleaks v1 line (see .pre-commit-config.yaml). Betterleaks never loads
+# this file on its own, so the pre-commit hook and the CI job pass `--config` explicitly.
+#
+# The expressions below only use helpers that v1 and v2 share (`matchesAny`), so the file
+# keeps working after an upgrade to Betterleaks v2.
+#
+# How to handle a finding:
+#   - Real secret: remove it, rotate it, and rewrite history if it was pushed.
+#   - False positive on one line: add a `betterleaks:allow` comment to that line.
+#   - False positive you cannot annotate: add its fingerprint to `.betterleaksignore`.
+#   - Whole class of false positives: extend the filters below, as narrowly as possible.
+# Every filter hides findings, so prefer the first three options over widening a filter.
+
+title = "Project betterleaks config"
+
+# Skip files that cannot be reviewed by hand and are not hand-written source. This runs
+# before any rule matching and adds to the built-in prefilter (images, fonts, other lockfiles).
+# Patterns are unanchored regexes, so anchor them to the repository root or a path segment.
+prefilter = '''
+matchesAny(attributes["path"], [
+  `(^|/)uv\.lock$`,
+  `(^|/)\.venv(\.[a-z]+)?/`,
+  `(^|/)__pycache__/`,
+  `(^|/)\.(ruff|pytest|mypy)_cache/`,
+  `(^|/)\.web/`,
+  `(^|/)assets/(img|icons)/`,
+  `(^|/)assets/favicon\.ico$`
+])
+'''
+
+# Discard findings whose value is known not to be a secret. Each pattern is anchored to the
+# whole value, so a real secret that merely contains one of these strings is still reported.
+#   - `secret:mn-db-password` names an entry in the secret provider and holds no value.
+#   - `<your database password here>` is a placeholder from .env.default.
+filter = '''
+matchesAny(finding["secret"], [
+  `^secret:[a-z0-9]+(-[a-z0-9]+)*$`,
+  `^<your [a-z ]+ here>$`
+])
+'''
+
+# Start from the built-in rules. The rule set only changes when the pinned Betterleaks
+# version changes, so new upstream rules arrive through a reviewed version bump.
+# This table comes last: TOML puts every key after a [table] header into that table.
+[extend]
+useDefault = true

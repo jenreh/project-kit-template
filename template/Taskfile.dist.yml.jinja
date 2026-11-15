@@ -83,7 +83,7 @@ tasks:
   # ----------------------------------------------------------------------------
 
   init:
-    desc: Initialize project (install python, sync deps, setup pre-commit)
+    desc: Initialize project (install python, sync deps, install pre-commit hooks{% endraw %}{% if coding_agents %}, agent plugins{% endif %}{% raw %})
     vars:
       PYTHON_VERSION:
         sh: |
@@ -93,18 +93,42 @@ tasks:
       - uv python install {{.PYTHON_VERSION}}
       - uv python pin {{.PYTHON_VERSION}}
       - echo "📦 Syncing dependencies..."
-      - uv sync
-      - echo "🔒 Installing pre-commit hooks..."
+      - task: sync
       - git rev-parse --git-dir >/dev/null 2>&1 || git init -b main
-      - uv run pre-commit install
+      # Hooks stay on the reviewed SHAs in .pre-commit-config.yaml; Dependabot updates them.
+      - echo "🔒 Installing pre-commit hooks..."
+      - uv run pre-commit install --install-hooks
+{%- endraw %}
+{%- if coding_agents %}
+      - task: agents:plugins
 
-  install:
-    desc: Install all dependencies (including dev extras)
-    cmd: uv sync
+  agents:plugins:
+    desc: Install the agent plugins from .claude/settings.json ({{ coding_agents | join(', ') }})
+    cmd: uv run --no-sync python scripts/install_agent_plugins.py
+{%- endif %}
+{%- raw %}
 
   sync:
-    desc: Install dependencies using uv
+    desc: Install all dependencies (including the dev group) with uv
+    aliases: [install]
     cmd: uv sync
+
+  upgrade:
+    desc: Upgrade all dependencies to the latest versions pyproject.toml allows, then sync and audit
+    cmds:
+      - echo "⬆️  Upgrading uv.lock..."
+      - uv lock --upgrade
+      - |
+        for f in components/*/pyproject.toml; do
+          [ -f "$f" ] || continue
+          echo "⬆️  Upgrading $(dirname "$f")/uv.lock..."
+          uv lock --upgrade --project "$(dirname "$f")"
+        done
+      - echo "📦 Syncing dependencies..."
+      - task: sync
+      - echo "🔍 Auditing the upgraded dependencies..."
+      - task: audit
+      - echo "✅ Done. Review the uv.lock diff, then run task lint and task test."
 
   clean:
     desc: Clean cache and build artifacts
@@ -113,4 +137,4 @@ tasks:
       - rm -rf __pycache__/ .cache/ .state/ .web/ dist/ build/ coverage.xml .coverage
       - find . -type d -name "__pycache__" -exec rm -rf {} +
       - find . -type f -name "*.pyc" -delete
-{% endraw %}
+{%- endraw %}

@@ -1,0 +1,475 @@
+#!/usr/bin/env python3
+"""Two-phase Terraform deployment.
+
+  bootstrap  phase 1: create the remote state storage (terraform/bootstrap)
+  migrate    phase 2: move to the remote backend, then deploy the main infrastructure
+  status     show the deployment status
+  cleanup    destroy all infrastructure (destructive)
+
+Variables come from --tfvars, else terraform.tfvars, else the first *.auto.tfvars
+in this folder, plus any -var key=value. backend.prod.hcl is generated from the
+state_* variables, so the tfvars file stays the single source of truth.
+
+Each command checks the cloud login first and starts the login when it is missing.
+Runs on Linux, macOS and Windows. Needs Python 3.10 or newer, terraform and the
+cloud CLI (aws or az). No other dependencies.
+"""
+
+from __future__ import annotations
+
+import argparse
+import io
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+from collections.abc import Callable
+from dataclasses import dataclass
+from pathlib import Path
+
+# Rendered from the copier answer. Switch clouds by changing it to "aws" or "azure".
+CLOUD = "{{ cloud_provider }}"
+
+TERRAFORM_DIR = Path(__file__).resolve().parent
+BOOTSTRAP_DIR = TERRAFORM_DIR / "bootstrap"
+BACKEND_HCL = TERRAFORM_DIR / "backend.prod.hcl"
+SCRIPT = Path(__file__).name
+# -var values whose key matches are never printed (they would end up in CI logs).
+SENSITIVE_KEY = re.compile(r"secret|password|token|credential|key", re.IGNORECASE)
+LINE = "═" * 79
+
+HclValue = str | bool
+
+
+@dataclass(frozen=True)
+class BackendSetting:
+    """One line of backend.prod.hcl: read from a tfvar, or a fixed value."""
+
+    key: str
+    tfvar: str | None = None
+    default: HclValue | None = None
+    optional: bool = False
+
+
+@dataclass(frozen=True)
+class Cloud:
+    name: str
+    login_check: tuple[str, ...]
+    login: tuple[str, ...]
+    identity: tuple[str, ...]
+    identity_label: str
+    # Backend type terraform writes to .terraform/terraform.tfstate after migrate.
+    backend_type: str
+    backend: tuple[BackendSetting, ...]
+
+
+CLOUDS = {
+    "aws": Cloud(
+        name="AWS",
+        login_check=("aws", "sts", "get-caller-identity"),
+        login=("aws", "sso", "login"),
+        identity=(
+            "aws",
+            "sts",
+            "get-caller-identity",
+            "--query",
+            "Account",
+            "--output",
+            "text",
+        ),
+        identity_label="AWS account",
+        backend_type="s3",
+        # No fallback names: the state holds secrets and must only ever go to a
+        # bucket that this project owns.
+        backend=(
+            BackendSetting("bucket", tfvar="state_bucket_name"),
+            BackendSetting("key", default="terraform.tfstate"),
+            BackendSetting("region", tfvar="aws_region"),
+            BackendSetting("encrypt", default=True),
+            BackendSetting("use_lockfile", default=True),
+        ),
+    ),
+    "azure": Cloud(
+        name="Azure",
+        login_check=("az", "account", "show"),
+        login=("az", "login"),
+        identity=("az", "account", "show", "--query", "name", "--output", "tsv"),
+        identity_label="Azure subscription",
+        backend_type="azurerm",
+        backend=(
+            BackendSetting("subscription_id", tfvar="subscription_id", optional=True),
+            BackendSetting("resource_group_name", tfvar="state_resource_group_name"),
+            BackendSetting("storage_account_name", tfvar="state_storage_account_name"),
+            BackendSetting(
+                "container_name", tfvar="state_container_name", default="tfstate"
+            ),
+            BackendSetting("key", default="terraform.tfstate"),
+            BackendSetting("use_azuread_auth", default=True),
+        ),
+    ),
+}
+
+
+class DeployError(Exception):
+    """Stops the deployment. The message is printed, the exit code returned."""
+
+    def __init__(self, message: str = "", code: int = 1) -> None:
+        super().__init__(message)
+        self.code = code
+
+
+# ── Output ──────────────────────────────────────────────────────────────────────
+_COLOR = sys.stdout.isatty() and "NO_COLOR" not in os.environ
+
+
+def _paint(code: str, text: str) -> str:
+    return f"\033[{code}m{text}\033[0m" if _COLOR else text
+
+
+def header(text: str) -> None:
+    print(_paint("0;35", f"{LINE}\n {text}\n{LINE}"))
+
+
+def step(text: str) -> None:
+    print(_paint("0;34", f"▶ {text}"))
+
+
+def success(text: str) -> None:
+    print(_paint("0;32", f"✅ {text}"))
+
+
+def warning(text: str) -> None:
+    print(_paint("1;33", f"⚠️  {text}"))
+
+
+def detail(text: str) -> None:
+    print(_paint("0;36", f"  {text}"))
+
+
+# ── Processes ───────────────────────────────────────────────────────────────────
+def _resolve(cmd: tuple[str, ...] | list[str]) -> list[str]:
+    # shutil.which also finds Windows shims such as az.cmd, which a bare name misses.
+    exe = shutil.which(cmd[0])
+    if exe is None:
+        raise DeployError(f"{cmd[0]} is required but was not found on PATH")
+    return [exe, *cmd[1:]]
+
+
+def run(*cmd: str, cwd: Path = TERRAFORM_DIR) -> None:
+    """Runs a command with its output on the terminal; stops on failure."""
+    code = subprocess.run(_resolve(cmd), cwd=cwd, check=False).returncode
+    if code != 0:
+        raise DeployError(code=code)
+
+
+def succeeds(*cmd: str, cwd: Path = TERRAFORM_DIR) -> bool:
+    """Runs a command quietly and reports whether it worked."""
+    proc = subprocess.run(
+        _resolve(cmd),
+        cwd=cwd,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        check=False,
+    )
+    return proc.returncode == 0
+
+
+def output_of(*cmd: str, cwd: Path = TERRAFORM_DIR) -> str:
+    proc = subprocess.run(
+        _resolve(cmd), cwd=cwd, capture_output=True, text=True, check=False
+    )
+    if proc.returncode != 0:
+        raise DeployError(proc.stderr.strip(), proc.returncode)
+    return proc.stdout.strip()
+
+
+def confirm(question: str, answers: tuple[str, ...]) -> None:
+    warning(question)
+    if input().strip().lower() not in answers:
+        warning("Cancelled.")
+        raise DeployError(code=0)
+
+
+# ── Variables ───────────────────────────────────────────────────────────────────
+class TfVars:
+    """The tfvars file and -var overrides passed to every plan."""
+
+    def __init__(self, tfvars: str | None, overrides: list[str]) -> None:
+        self.overrides = overrides
+        self.file = self._find_file(tfvars)
+
+    def _find_file(self, tfvars: str | None) -> Path | None:
+        if tfvars:
+            path = Path(tfvars).resolve()
+            if not path.is_file():
+                raise DeployError(f"Specified tfvars file '{tfvars}' not found")
+            success(f"Using specified tfvars file: {path}")
+            return path
+        candidates = [TERRAFORM_DIR / "terraform.tfvars"]
+        candidates += sorted(TERRAFORM_DIR.glob("*.auto.tfvars"))
+        for path in candidates:
+            if path.is_file():
+                success(f"Found tfvars file: {path.name}")
+                return path
+        if not self.overrides:
+            # Terraform still enforces required variables at plan time.
+            warning(
+                "No tfvars file or -var provided; using Terraform variable "
+                "defaults / TF_VAR_ env."
+            )
+        return None
+
+    def show_overrides(self) -> None:
+        if not self.overrides:
+            return
+        success("Using command-line variables:")
+        for pair in self.overrides:
+            key = pair.split("=", 1)[0]
+            detail(f"{key}=***" if SENSITIVE_KEY.search(key) else pair)
+
+    def args(self) -> list[str]:
+        args = [f"-var-file={self.file}"] if self.file else []
+        for pair in self.overrides:
+            args += ["-var", pair]
+        return args
+
+    def read(self, name: str) -> str:
+        """The last value of a variable: -var overrides first, then the tfvars file."""
+        for pair in reversed(self.overrides):
+            key, _, value = pair.partition("=")
+            if key.strip() == name and value:
+                return value
+        if self.file is None:
+            return ""
+        pattern = re.compile(rf"^\s*{re.escape(name)}\s*=(.*)$")
+        value = ""
+        for line in self.file.read_text(encoding="utf-8").splitlines():
+            match = pattern.match(line)
+            if match:
+                # Drop an inline comment and the quotes, then trim: a stray
+                # space makes an invalid bucket or storage account name.
+                value = match.group(1).split("#", 1)[0].replace('"', "").strip()
+        return value
+
+
+# ── Steps ───────────────────────────────────────────────────────────────────────
+def ensure_login(cloud: Cloud) -> None:
+    step(f"Checking {cloud.name} authentication")
+    if not succeeds(*cloud.login_check):
+        warning(f"Not logged in to {cloud.name}; running '{' '.join(cloud.login)}'")
+        run(*cloud.login)
+        if not succeeds(*cloud.login_check):
+            raise DeployError(f"Still not logged in to {cloud.name}.")
+    success(f"Authenticated to {cloud.identity_label}: {output_of(*cloud.identity)}")
+
+
+def _hcl(value: HclValue) -> str:
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    return json.dumps(value)
+
+
+def generate_backend_hcl(cloud: Cloud, tfvars: TfVars) -> None:
+    lines: list[tuple[str, HclValue]] = []
+    for setting in cloud.backend:
+        value: HclValue | None = tfvars.read(setting.tfvar) if setting.tfvar else None
+        if value in ("", None):
+            value = setting.default
+        if value is None:
+            if setting.optional:
+                continue
+            raise DeployError(f"Set {setting.tfvar} in your tfvars")
+        lines.append((setting.key, value))
+
+    width = max(len(key) for key, _ in lines)
+    body = "\n".join(f"{key.ljust(width)} = {_hcl(value)}" for key, value in lines)
+    BACKEND_HCL.write_text(
+        f"# Auto-generated by {SCRIPT} from the tfvars state_* variables.\n"
+        "# Do not edit manually; update the tfvars file instead.\n\n"
+        f"{body}\n",
+        encoding="utf-8",
+    )
+    success(f"Generated {BACKEND_HCL}")
+
+
+def plan_and_apply(tfvars: TfVars, plan: str, cwd: Path, ask: bool) -> None:
+    plan_file = cwd / plan
+    try:
+        run("terraform", "plan", *tfvars.args(), f"-out={plan}", cwd=cwd)
+        if ask:
+            confirm(
+                "Ready to deploy main infrastructure. Continue? (y/N)", ("y", "yes")
+            )
+        run("terraform", "apply", plan, cwd=cwd)
+    finally:
+        plan_file.unlink(missing_ok=True)  # plans contain secrets in clear text
+
+
+def uses_remote_backend(cloud: Cloud) -> bool:
+    """True once `terraform init -backend-config=...` has run (see migrate)."""
+    state = TERRAFORM_DIR / ".terraform" / "terraform.tfstate"
+    if not (BACKEND_HCL.is_file() and state.is_file()):
+        return False
+    try:
+        backend = json.loads(state.read_text(encoding="utf-8")).get("backend") or {}
+    except ValueError:
+        return False
+    return backend.get("type") == cloud.backend_type
+
+
+# ── Commands ────────────────────────────────────────────────────────────────────
+def bootstrap(cloud: Cloud, tfvars: TfVars) -> None:
+    if not BOOTSTRAP_DIR.is_dir():
+        raise DeployError(f"{BOOTSTRAP_DIR} not found")
+    ensure_login(cloud)
+
+    step("Initializing Terraform (bootstrap)")
+    run("terraform", "init", cwd=BOOTSTRAP_DIR)
+    run("terraform", "validate", cwd=BOOTSTRAP_DIR)
+
+    step("Planning and applying the bootstrap configuration")
+    plan_and_apply(tfvars, "bootstrap.tfplan", BOOTSTRAP_DIR, ask=False)
+    success("Bootstrap phase completed successfully!")
+
+    step("Writing backend configuration")
+    backend = output_of(
+        "terraform", "output", "-json", "backend_configuration", cwd=BOOTSTRAP_DIR
+    )
+    (BOOTSTRAP_DIR / "backend_config.json").write_text(backend, encoding="utf-8")
+    for key, value in json.loads(backend).items():
+        detail(f"{key}: {value}")
+
+    step("Generating backend.prod.hcl from tfvars")
+    generate_backend_hcl(cloud, tfvars)
+    next_args = f" --tfvars {tfvars.file}" if tfvars.file else ""
+    warning(f"Next: run '{SCRIPT} migrate{next_args}'")
+
+
+def migrate(cloud: Cloud, tfvars: TfVars) -> None:
+    ensure_login(cloud)
+
+    step("Generating backend.prod.hcl from tfvars")
+    generate_backend_hcl(cloud, tfvars)
+
+    step("Re-initializing Terraform with remote backend")
+    shutil.rmtree(TERRAFORM_DIR / ".terraform", ignore_errors=True)
+    run("terraform", "init", f"-backend-config={BACKEND_HCL}")
+    success("Successfully migrated to remote backend!")
+    run("terraform", "validate")
+
+    step("Planning main infrastructure")
+    plan_and_apply(tfvars, "main.tfplan", TERRAFORM_DIR, ask=True)
+    success("Main infrastructure deployed successfully!")
+    run("terraform", "output", "deployment_summary")
+
+
+def status(cloud: Cloud) -> None:
+    if uses_remote_backend(cloud):
+        ensure_login(cloud)
+        success("Using remote backend")
+        try:
+            print(output_of("terraform", "output", "deployment_summary"))
+        except DeployError:
+            warning("Main infra not yet deployed")
+    elif (BOOTSTRAP_DIR / "terraform.tfstate").is_file():
+        success("Bootstrap completed, ready for migration")
+    else:
+        warning("Bootstrap not run")
+
+
+def cleanup(cloud: Cloud, tfvars: TfVars) -> None:
+    confirm("Destroy **ALL** infrastructure? Type 'yes' to confirm:", ("yes",))
+    ensure_login(cloud)
+
+    run("terraform", "destroy", "-auto-approve", *tfvars.args())
+    shutil.rmtree(TERRAFORM_DIR / ".terraform", ignore_errors=True)
+    leftovers = [
+        *TERRAFORM_DIR.glob("*.tfplan"),
+        *TERRAFORM_DIR.glob("*.tfstate*"),
+        BACKEND_HCL,
+        BOOTSTRAP_DIR / "backend_config.json",
+    ]
+    for path in leftovers:
+        path.unlink(missing_ok=True)
+    success("Cleanup completed")
+
+
+DEPLOY_COMMANDS: dict[str, tuple[str, Callable[[Cloud, TfVars], None]]] = {
+    "bootstrap": ("PHASE 1: TERRAFORM STATE STORAGE BOOTSTRAP", bootstrap),
+    "migrate": (
+        "PHASE 2: MIGRATE TO REMOTE BACKEND & DEPLOY MAIN INFRASTRUCTURE",
+        migrate,
+    ),
+    "cleanup": ("TERRAFORM CLEANUP", cleanup),
+}
+
+
+def parse_args(argv: list[str] | None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        prog=SCRIPT,
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "examples:\n"
+            f'  {SCRIPT} bootstrap -var "environment=dev"\n'
+            f"  {SCRIPT} migrate --tfvars prod.auto.tfvars\n"
+            f"  {SCRIPT} status"
+        ),
+    )
+    parser.add_argument(
+        "command",
+        nargs="?",
+        choices=[*DEPLOY_COMMANDS, "status", "help"],
+        default="help",
+    )
+    parser.add_argument("--tfvars", metavar="FILE", help="Terraform variables file")
+    parser.add_argument(
+        "-var",
+        dest="overrides",
+        action="append",
+        default=[],
+        metavar="KEY=VALUE",
+        help="set a Terraform variable (repeatable)",
+    )
+    args = parser.parse_args(argv)
+    if args.command == "help":
+        parser.print_help()
+        parser.exit()
+    for pair in args.overrides:
+        if "=" not in pair:
+            parser.error(f"-var needs a key=value argument, got '{pair}'")
+    return args
+
+
+def main(argv: list[str] | None = None) -> int:
+    # Windows consoles and redirected output may not use UTF-8; never crash on "✅".
+    # Line buffering keeps our lines in order with the output of terraform in CI logs.
+    for stream in (sys.stdout, sys.stderr):
+        if isinstance(stream, io.TextIOWrapper):
+            stream.reconfigure(errors="replace", line_buffering=True)
+
+    args = parse_args(argv)
+    try:
+        cloud = CLOUDS[CLOUD]
+        if args.command == "status":
+            header("TERRAFORM DEPLOYMENT STATUS")
+            status(cloud)
+        else:
+            title, command = DEPLOY_COMMANDS[args.command]
+            header(title)
+            tfvars = TfVars(args.tfvars, args.overrides)
+            tfvars.show_overrides()
+            command(cloud, tfvars)
+    except DeployError as err:
+        if str(err):
+            print(_paint("0;31", f"❌ {err}"), file=sys.stderr)
+        return err.code
+    except KeyboardInterrupt:
+        return 130
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

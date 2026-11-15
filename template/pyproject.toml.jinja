@@ -12,27 +12,26 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3 :: Only",
-    "Topic :: Home Automation",
 ]
 
 dependencies = [
 {%- if project_type == 'reflex' %}
-    "appkit-user>=1.18.0",
-    "appkit-mantine>=1.18.0",
-    "psycopg[binary,pool]>=3.3.6",
-    "reflex>=0.10.1",
-    "sqlalchemy>=2.1.6",
+    "appkit-user>=1.19.1",
+    "appkit-mantine>=1.19.1",
+    "psycopg[binary,pool]>=3.3.9",
+    "reflex>=0.11.0",
+    "sqlalchemy>=2.1.8",
     "alembic>=1.20.1",
 {%- else %}
-    "fastmcp>=4.1.5",
-    "typer>=0.27.3",
+    "fastmcp>=4.2.0",
+    "typer>=0.29.1",
     "rich>=15.0.0",
-    "pydantic>=2.14.2",
-    "pydantic-settings>=2.16.2",
+    "pydantic>=2.14.3",
+    "pydantic-settings>=2.16.3",
 {%- if include_db %}
-    "sqlalchemy>=2.1.6",
+    "sqlalchemy>=2.1.8",
     "alembic>=1.20.1",
-    "psycopg[binary,pool]>=3.3.6",
+    "psycopg[binary,pool]>=3.3.9",
 {%- else %}
     "aiosqlite>=0.22.1",
 {%- endif %}
@@ -45,15 +44,14 @@ dependencies = [
 [dependency-groups]
 dev = [
     "bump-my-version>=1.8.1",
-    "detect-secrets>=1.5.0",
     "pre-commit>=4.7.0",
     "pytest>=9.2.0",
-    "pytest-asyncio>=1.4.1",
+    "pytest-asyncio>=1.5.0",
     "pytest-cov>=7.1.0",
-    "pytest-httpserver>=1.2.0",
-    "ruff>=0.17.3",
-    "ty>=0.0.95",
-    "types-PyYAML>=6.0.12.20261030",
+    "pytest-httpserver>=1.2.1",
+    "ruff>=0.17.5",
+    "ty>=0.0.104",
+    "types-PyYAML>=6.0.12.20261113",
 ]
 
 [project.scripts]
@@ -72,23 +70,6 @@ include = [
     "/{% if project_type == 'reflex' %}app{% else %}{{ package_name }}{% endif %}",
     "README.md",
     "pyproject.toml",
-]
-exclude = [
-    ".agents/",
-    ".cache/",
-    ".claude/",
-    ".devcontainer/",
-    ".github/",
-    ".vscode/",
-    "skill/",
-    "spec/",
-    "tests/",
-    ".env",
-    ".gitignore",
-    ".pre-commit-config.yaml",
-    "AGENTS.md",
-    "coverage.xml",
-    "Taskfile.yaml",
 ]
 
 [tool.bumpversion]
@@ -220,6 +201,8 @@ select = [
     "E741",
     "RUF059",
 ]
+# Command line scripts print their output and run tools with fixed arguments.
+"{scripts,terraform}/*.py" = ["T201", "S603", "S607"]
 
 [tool.ruff.format]
 quote-style = "double"
@@ -237,9 +220,6 @@ known-local-folder = ["{% if project_type == 'reflex' %}app{% else %}{{ package_
 cache_dir = ".cache/pytest"
 testpaths = ["tests"]
 asyncio_mode = "auto"
-markers = [
-    "sonos_live: requires real Sonos hardware on the network",
-]
 
 # Type checking with `ty` (Astral). Run via `task typecheck` (uv run ty check).
 [tool.ty.environment]
@@ -259,7 +239,7 @@ exclude = [
 # Treat unresolved third-party imports as errors-off-by-default like mypy's
 # ignore_missing_imports; ty resolves imports from the project venv instead.
 [tool.ty.rules]
-unresolved-import = "warn"
+import-not-found = "warn"
 
 [tool.coverage.run]
 branch = true

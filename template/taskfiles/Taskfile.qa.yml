@@ -10,7 +10,7 @@ vars:
   SRC_DIRS:
     sh: |
       printf '%s' "{{.PROJECT}}"
-      for d in components/*/src; do [ -d "$d" ] && printf ' %s' "$d"; done; true
+      for d in components/*/src; do if [ -d "$d" ]; then printf ' %s' "$d"; fi; done
 
 tasks:
   # ----------------------------------------------------------------------------
@@ -22,8 +22,10 @@ tasks:
     cmd: "{{.RUNNER}} pytest --cov"
 
   lint:
-    desc: Run linting with ruff
-    cmd: "{{.RUNNER}} ruff check {{.SRC_DIRS}}"
+    desc: Run linting with ruff and type checking with ty
+    cmds:
+      - task: format
+      - task: typecheck
 
   format:
     desc: Format code with ruff
@@ -36,7 +38,7 @@ tasks:
     cmd: "{{.RUNNER}} ty check {{.SRC_DIRS}}"
 
   pre-commit:
-    desc: Run all pre-commit hooks (incl. gitleaks) on every file
+    desc: Run all pre-commit hooks (incl. betterleaks) on every file
     cmd: "{{.RUNNER}} pre-commit run --all-files"
 
   audit:

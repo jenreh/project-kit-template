@@ -1,0 +1,89 @@
+#!/usr/bin/env python3
+"""Installs the agent marketplaces and plugins listed in .claude/settings.json.
+
+.claude/settings.json is the single source of truth. This installs its entries
+into the agent CLIs this project uses, when they are on PATH:
+{{ coding_agents | join(', ') }}. VS Code Copilot reads .claude/settings.json itself.
+
+Entries that are already installed fail quietly, so this is safe to run again.
+Runs on Linux, macOS and Windows. Needs Python 3.10 or newer.
+"""
+
+from __future__ import annotations
+
+import json
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+from typing import Any
+
+SETTINGS = Path(__file__).resolve().parent.parent / ".claude" / "settings.json"
+
+# Agent CLI -> the `plugin` sub-command that installs a plugin.
+AGENT_CLIS = {
+{%- if 'claude' in coding_agents %}
+    "claude": "install",
+{%- endif %}
+{%- if 'copilot' in coding_agents %}
+    "copilot": "install",
+{%- endif %}
+{%- if 'codex' in coding_agents %}
+    "codex": "add",
+{%- endif %}
+}
+
+
+def github_marketplaces(settings: dict[str, Any]) -> list[str]:
+    entries = settings.get("extraKnownMarketplaces") or {}
+    if isinstance(entries, dict):
+        entries = entries.values()
+    return [
+        source["repo"]
+        for source in (entry.get("source") or {} for entry in entries)
+        if source.get("source") == "github" and source.get("repo")
+    ]
+
+
+def enabled_plugins(settings: dict[str, Any]) -> list[str]:
+    return [name for name, on in (settings.get("enabledPlugins") or {}).items() if on]
+
+
+def quietly(*cmd: str) -> None:
+    subprocess.run(
+        cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False
+    )
+
+
+def install(cli: str, verb: str, marketplaces: list[str], plugins: list[str]) -> None:
+    # shutil.which also finds the Windows .cmd shims that npm installs.
+    exe = shutil.which(cli)
+    if exe is None:
+        return
+    for repo in marketplaces:
+        print(f"{cli}: adding marketplace {repo}")
+        quietly(exe, "plugin", "marketplace", "add", repo)
+    for plugin in plugins:
+        print(f"{cli}: installing plugin {plugin}")
+        quietly(exe, "plugin", verb, plugin)
+
+
+def main() -> int:
+    try:
+        settings = json.loads(SETTINGS.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as err:
+        print(
+            f"Cannot read {SETTINGS} ({err}); skipping agent plugin install",
+            file=sys.stderr,
+        )
+        return 0
+
+    marketplaces = github_marketplaces(settings)
+    plugins = enabled_plugins(settings)
+    for cli, verb in AGENT_CLIS.items():
+        install(cli, verb, marketplaces, plugins)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

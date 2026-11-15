@@ -67,10 +67,6 @@ python_version:
     "3.15": "3.15"
     "3.14": "3.14"
   default: "3.14"
-  validator: >-
-    {% if project_type == 'reflex' and python_version in ['3.11', '3.12'] %}
-    reflex projects need Python 3.13 or newer (required by appkit)
-    {% endif %}
 
 include_db:
   type: bool
@@ -98,6 +94,15 @@ include_docker:
   help: Include Docker tooling (Dockerfile + compose for reflex; docker task otherwise)
   default: "{{ project_type == 'reflex' }}"
 
+devcontainer_docker:
+  type: bool
+  help: >-
+    Give the dev container the host Docker daemon (docker-outside-of-docker)? Everything
+    in the container, coding agents included, then has root access to the host. Without
+    it, run the docker tasks on the host.
+  default: false
+  when: "{{ use_devcontainer and include_docker }}"
+
 include_terraform:
   type: bool
   help: Include the terraform/ scaffold + cloud deploy task
@@ -121,19 +126,33 @@ include_graph:
   type: bool
   help: Add GraphDB / runic-py (graph schema migrations + OGM for Cypher DBs)
   default: false
-  validator: >-
-    {% if include_graph and python_version in ['3.11', '3.12', '3.13'] %}
-    runic-py needs Python 3.14 or newer
-    {% endif %}
 
-include_skills:
-  type: bool
-  help: Install jenreh/agent-skills (git subtree -> .agents/agent-skills) and wire .agents/skills + .claude/skills
-  default: true
+coding_agents:
+  type: str
+  help: Which coding agents do you use? (CLI + VS Code extension in the dev container, plugin install via `task agents:plugins`)
+  multiselect: true
+  choices:
+    Claude Code: claude
+    GitHub Copilot: copilot
+    OpenAI Codex: codex
+  default: [claude]
+
+agent_plugins:
+  type: str
+  help: Which plugin marketplaces should the agents install? (listed in .claude/settings.json)
+  multiselect: true
+  choices:
+    "jenreh/agent-skills (Python, Reflex, design, Terraform, GraphDB skills)": jenreh
+    "obra/superpowers (brainstorm, plan, TDD and debugging workflows)": superpowers
+    "mattpocock/skills (TDD, domain modeling, code review, prototyping)": mattpocock
+  default: [jenreh]
+  when: "{{ coding_agents | length > 0 }}"
 
 create_github_repo:
   type: bool
-  help: Create the project as a GitHub repo and push the initial commit (needs an authenticated `gh`)
+  help: >-
+    Create the GitHub repo, push the project and apply the GitHub baseline (rulesets,
+    branch protection, security + Advanced Security; needs an authenticated `gh`)
   default: false
 
 github_visibility:
@@ -144,13 +163,6 @@ github_visibility:
     Public: public
   default: private
   when: "{{ create_github_repo }}"
-
-# Commit of jenreh/agent-skills to vendor. Pinned so that a later change on that
-# branch cannot run on a machine that generates a project. Raise it deliberately.
-agent_skills_ref:
-  type: str
-  default: 6fe7e765e81d86aef60302452498c1d1050af25e
-  when: false
 
 # ─── File selection ───────────────────────────────────────────────────────────
 # _exclude replaces Copier's defaults, so VCS/OS/build junk is re-listed first,
@@ -207,26 +219,29 @@ _exclude:
   - "{% if not include_docker %}/.dockerignore{% endif %}"
   # devcontainer (available for any project type)
   - "{% if not use_devcontainer %}/.devcontainer{% endif %}"
-  # terraform — taskfiles/Taskfile.terraform.yaml always ships (rendered for the
-  # chosen cloud_provider) and is switched on via the includes block in
-  # Taskfile.dist.yml; only the terraform/ scaffold + unused deploy-*.sh are gated.
+  # terraform — taskfiles/Taskfile.terraform.yaml always ships and is switched on via
+  # the includes block in Taskfile.dist.yml. terraform/deploy.py is rendered for the
+  # chosen cloud_provider, so only the terraform/ scaffold itself is gated.
   - "{% if not include_terraform %}/terraform{% endif %}"
-  - "{% if not (include_terraform and cloud_provider == 'azure') %}/terraform/deploy-azure.sh{% endif %}"
-  - "{% if not (include_terraform and cloud_provider == 'aws') %}/terraform/deploy-aws.sh{% endif %}"
   # docs site
   - "{% if not include_docs %}/docs{% endif %}"
+  # coding agents: the plugin installer only ships when an agent was chosen
+  - "{% if not coding_agents %}/scripts/install_agent_plugins.py*{% endif %}"
 
 # ─── Post-generation ──────────────────────────────────────────────────────────
 
 _message_after_copy: |
   Project "{{ project_name }}" ({{ project_type }}) created.
   {% if create_github_repo %}
-  GitHub: {{ github_visibility }} repo pushed to
-  https://github.com/{{ github_owner }}/{{ project_name }} (if gh was authenticated).
+  GitHub: {{ github_visibility }} repo https://github.com/{{ github_owner }}/{{ project_name }}
+  created (if gh was authenticated), with the rulesets from BRANCHING.md and the
+  security settings applied. The output above lists what this
+  plan supports.
   {% else %}
-  Publish later with:
-    git add -A && git commit -m "init"
-    gh repo create {{ github_owner }}/{{ project_name }} --private --source=. --push
+  Publish later (creates the repo, pushes, and applies the rulesets and security
+  settings):
+    git add -A && git commit -m "Initial commit from kit-template"
+    uv run python scripts/github_publish.py {{ github_owner }}/{{ project_name }} private
   {% endif %}
   Next:
     cd {{ _copier_conf.dst_path }}
@@ -240,37 +255,38 @@ _message_after_copy: |
     {%- else -%}
     task test
     {%- endif %}
-  {% if include_skills %}
-  Skills: jenreh/agent-skills is vendored as a git subtree at .agents/agent-skills,
-  with .agents/skills (Codex/Copilot) and .claude/skills (Claude Code) symlinked to it.
-  Update later with:
-    git subtree pull --prefix .agents/agent-skills https://github.com/jenreh/agent-skills.git main --squash
+  {% if coding_agents %}
+  Agents: {{ coding_agents | join(', ') }}.
+  {%- if agent_plugins %}
+  .claude/settings.json lists the plugin marketplaces ({{ agent_plugins | join(', ') }}).
+  `task init` (and every dev container attach) runs `task agents:plugins`, which
+  installs them into each chosen agent CLI found on PATH.
+  {%- endif %}
+  Project-specific skills go in .agents/skills (.claude/skills links to it).
   {% endif %}
   {% if include_graph %}
-  GraphDB: runic-py (graph migrations + OGM) is in your dependencies, and the
-  runic / runic-migrate / runic-ogm skills are vendored.
+  GraphDB: runic-py (graph migrations + OGM) is in your dependencies
+  {%- if coding_agents and 'jenreh' in agent_plugins %}, and the
+  runic-migrate / runic-ogm skills come with the jenreh-graphdb plugin{% endif %}.
   {% endif %}
 
+# Commands are argument lists (no shell), so they also run on Windows.
 _tasks:
   # Make the generated project a git repo so pre-commit (and copier update) work.
-  - "git rev-parse --git-dir >/dev/null 2>&1 || git init -b main"
-  - "uv sync"
-  # An initial commit is required before installing skills: add-skills.sh runs
-  # `git subtree add`, which refuses to run against a dirty tree or an empty repo.
-  # So we also commit when create_github_repo even without skills.
-  - command: "git add -A && git commit -q -m 'Initial commit from kit-template'"
-    when: "{{ include_skills or create_github_repo }}"
-  # Vendor jenreh/agent-skills via git subtree (-> .agents/agent-skills) and wire
-  # .agents/skills (Codex/Copilot) + .claude/skills (Claude Code). The installer
-  # makes its own commit. Override repo/ref via AGENT_SKILLS_REPO/_BRANCH.
+  # Re-running git init on an existing repo is safe; -c keeps it quiet on update.
+  - ["git", "-c", "init.defaultBranch=main", "init", "-q"]
+  - ["uv", "sync"]
+  # github_publish.py pushes the local history, so it needs a commit.
+  - command: ["git", "add", "-A"]
+    when: "{{ create_github_repo }}"
+  - command: ["git", "commit", "-q", "-m", "Initial commit from kit-template"]
+    when: "{{ create_github_repo }}"
+  # Optional: create the GitHub repo, push, then apply branch protection, the
+  # BRANCHING.md rulesets (.github/rulesets/) and security / Advanced Security.
+  # On failure the script prints how to finish; `|| echo` (valid in sh and cmd.exe)
+  # keeps a failed publish from aborting the generation.
   - command: >-
-      curl -fsSL https://raw.githubusercontent.com/jenreh/agent-skills/{{ agent_skills_ref }}/scripts/add-skills.sh
-      | AGENT_SKILLS_BRANCH="${AGENT_SKILLS_BRANCH:-{{ agent_skills_ref }}}" bash
-    when: "{{ include_skills }}"
-  # Optional: create the GitHub repo and push (requires `gh` auth).
-  - command: >-
-      gh repo create {{ github_owner }}/{{ project_name }} --{{ github_visibility }}
-      --source=. --remote=origin --push
-      || echo 'GitHub repo not created (is gh authenticated? does the repo already exist?).
-      Create it later with: gh repo create {{ github_owner }}/{{ project_name }} --{{ github_visibility }} --source=. --push'
+      uv run --no-sync python scripts/github_publish.py
+      {{ github_owner }}/{{ project_name }} {{ github_visibility }}
+      || echo GitHub publishing did not finish, see the message above.
     when: "{{ create_github_repo }}"

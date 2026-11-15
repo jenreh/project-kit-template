@@ -1,12 +1,12 @@
 {%- set cloud = 'AWS' if cloud_provider == 'aws' else 'Azure' -%}
-{%- set script = 'deploy-aws.sh' if cloud_provider == 'aws' else 'deploy-azure.sh' -%}
-{%- set auth = 'aws sts get-caller-identity > /dev/null 2>&1 || aws sso login' if cloud_provider == 'aws' else 'az account show > /dev/null 2>&1 || az login' -%}
 # yaml-language-server: $schema=https://taskfile.dev/schema.json
 
 version: "3"
 
 vars:
   TFVARS: "{% raw %}{{.TF_DIR}}/{{.ENVIRONMENT}}{% endraw %}.auto.tfvars"
+  # The script checks the {{ cloud }} login itself and starts it when needed.
+  DEPLOY: "uv run --no-sync python {% raw %}{{.TF_DIR}}{% endraw %}/deploy.py"
 
 tasks:
   # ----------------------------------------------------------------------------
@@ -14,36 +14,22 @@ tasks:
   # ----------------------------------------------------------------------------
   status:
     desc: Show current deployment status
-    # Force execution in the directory of this Taskfile
-    dir: "{% raw %}{{.TF_DIR}}{% endraw %}"
-    cmds:
-      - {{ auth }}
-      # Now we can refer to the script locally because 'dir' sets the context
-      - ./{{ script }} status
+    cmd: "{% raw %}{{.DEPLOY}}{% endraw %} status"
 
   bootstrap:
     desc: Create state storage infrastructure in {{ cloud }} (only run once)
-    dir: "{% raw %}{{.TF_DIR}}{% endraw %}"
     requires:
       vars: [TFVARS]
-    cmds:
-      - {{ auth }}
-      - ./{{ script }} bootstrap --tfvars {% raw %}{{.TFVARS}} {{.CLI_ARGS}}{% endraw %}
+    cmd: "{% raw %}{{.DEPLOY}} bootstrap --tfvars {{.TFVARS}} {{.CLI_ARGS}}{% endraw %}"
 
   migrate:
     desc: Deploy and update main infrastructure
-    dir: "{% raw %}{{.TF_DIR}}{% endraw %}"
     requires:
       vars: [TFVARS]
-    cmds:
-      - {{ auth }}
-      - ./{{ script }} migrate --tfvars {% raw %}{{.TFVARS}} {{.CLI_ARGS}}{% endraw %}
+    cmd: "{% raw %}{{.DEPLOY}} migrate --tfvars {{.TFVARS}} {{.CLI_ARGS}}{% endraw %}"
 
   destroy:
     desc: Destroy all infrastructure (⚠️  destructive)
-    dir: "{% raw %}{{.TF_DIR}}{% endraw %}"
     requires:
       vars: [TFVARS]
-    cmds:
-      - {{ auth }}
-      - terraform destroy -var-file {% raw %}{{.TFVARS}} {{.CLI_ARGS}}{% endraw %}
+    cmd: "{% raw %}{{.DEPLOY}} cleanup --tfvars {{.TFVARS}} {{.CLI_ARGS}}{% endraw %}"
