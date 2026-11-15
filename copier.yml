@@ -200,8 +200,8 @@ _exclude:
   - "{% if project_type != 'reflex' %}/components{% endif %}"
   - "{% if project_type != 'reflex' %}/.env.default{% endif %}"
   # github workflows: docker-publish ↔ include_docker; pypi-publish ↔ python libs
-  - "{% if not include_docker %}/.github/workflows/01_build_and_publish_docker_image.yml{% endif %}"
-  - "{% if project_type != 'python' %}/.github/workflows/02_publish_to_pypi.yml{% endif %}"
+  - "{% if not include_docker %}/.github/workflows/04_build_and_publish_docker_image.yml{% endif %}"
+  - "{% if project_type != 'python' %}/.github/workflows/05_publish_to_pypi.yml{% endif %}"
   # python-only smoke test imports the python package
   - "{% if project_type != 'python' %}/tests/test_smoke.py{% endif %}"
   # database / alembic: shipped for reflex or python+include_db. env.py.jinja renders a

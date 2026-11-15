@@ -1,4 +1,4 @@
-name: 02 Build and Publish Artifacts/Libs on Release
+name: 05 Build and Publish Artifacts/Libs on Release
 
 on:
   release:

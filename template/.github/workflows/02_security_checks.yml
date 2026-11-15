@@ -1,4 +1,4 @@
-name: 00 Security checks
+name: 02 Security checks
 
 on:
   pull_request:

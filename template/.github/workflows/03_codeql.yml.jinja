@@ -1,0 +1,65 @@
+# CodeQL advanced setup. scripts/github_harden.py turns GitHub's CodeQL default setup
+# off, because GitHub rejects uploads from this workflow while default setup is on.
+# The default branch ruleset blocks merges with new high or critical CodeQL alerts,
+# so every pull request needs these results: do not add a paths filter.
+name: 03 CodeQL
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "16 9 * * 4"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: codeql-{% raw %}${{ github.ref }}{% endraw %}
+  # Only cancel superseded pull request runs; every push to main gets analyzed.
+  cancel-in-progress: {% raw %}${{ github.event_name == 'pull_request' }}{% endraw %}
+
+jobs:
+  analyze:
+    name: Analyze ({% raw %}${{ matrix.language }}{% endraw %})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      # Upload the results to code scanning.
+      security-events: write
+      # Read the workflow run status (needed in private repositories).
+      actions: read
+    strategy:
+      fail-fast: false
+      matrix:
+        # Python and JavaScript are interpreted, so CodeQL reads the source and
+        # needs no build. `actions` checks the workflows in .github/workflows.
+        language:
+          - actions
+          - python
+{%- if project_type == 'reflex' %}
+          - javascript-typescript
+{%- endif %}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+        with:
+          languages: {% raw %}${{ matrix.language }}{% endraw %}
+          build-mode: none
+          # Tests and migrations are not shipped code; skip them to keep the alerts relevant.
+          config: |
+            paths-ignore:
+              - tests
+              - alembic/versions
+
+      - name: Perform CodeQL analysis
+        uses: github/codeql-action/analyze@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+        with:
+          category: "/language:{% raw %}${{ matrix.language }}{% endraw %}"

@@ -45,6 +45,8 @@ this repository, or contact the maintainers directly.
 - [ ] Run the service as an unprivileged user.
 {%- endif %}
 - [ ] Check the GitHub baseline: `scripts/github_publish.py` (or `python scripts/github_harden.py`
-      for an existing repo) sets up branch protection with the `00 Security checks` jobs
-      required, Dependabot, secret scanning with push protection, CodeQL and private
-      vulnerability reporting. Its output lists what your plan does not support.
+      for an existing repo) sets up branch protection with the `02 Security checks` jobs
+      required, Dependabot, secret scanning with push protection, a CodeQL merge gate,
+      AI Scan and private vulnerability reporting. Its output lists what your plan does
+      not support, and the settings to turn on by hand (malware alerts, automatic
+      dependency submission, scan for AI applications).

@@ -41,8 +41,8 @@ script again after you change a JSON file.
 - Changes only through a pull request with one approving review. A new push dismisses
   earlier approvals.
 - All review conversations must be resolved before merging.
-- The `00 Security checks` jobs must pass, and once CodeQL runs, no new high or critical
-  code scanning alert may be merged.
+- The `02 Security checks` jobs must pass, and when code scanning is available, no new
+  high or critical CodeQL alert (from `.github/workflows/03_codeql.yml`) may be merged.
 - No force pushes, no deletion, and no creation of the branch.
 - Merge commits only.
 

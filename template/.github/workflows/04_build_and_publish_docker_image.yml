@@ -1,4 +1,4 @@
-name: 01 Build and Publish GHRC Image on Release
+name: 04 Build and Publish GHCR Image on Release
 
 on:
   release:

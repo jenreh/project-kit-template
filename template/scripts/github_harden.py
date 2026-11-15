@@ -11,13 +11,19 @@ running it again is safe. scripts/github_publish.py runs it after the first push
                GitHub Advanced Security (Code Security + Secret Protection),
                secret scanning with push protection, non-provider patterns,
                AI detection, private vulnerability reporting,
-               CodeQL code scanning (default setup)
+               AI Scan for repositories and pull requests (uses AI credits),
+               CodeQL default setup off (.github/workflows/03_codeql.yml runs
+               CodeQL, and GitHub rejects its results while default setup is on)
   Rulesets     every .github/rulesets/*.json. The one on the default branch also
                gets the required status checks (--require-check, by default the
-               jobs of .github/workflows/00_security_checks.yml, accepted only
-               from GitHub Actions) and, once CodeQL is configured, a code
-               scanning merge gate (high or higher). It replaces classic branch
+               jobs of .github/workflows/02_security_checks.yml, accepted only
+               from GitHub Actions) and, when code scanning is available, a
+               CodeQL merge gate (high or higher). It replaces classic branch
                protection, which is removed only after the ruleset is in place.
+
+GitHub has no API for some settings. The script lists them at the end with the
+settings page, so they can be turned on by hand: malware alerts, automatic
+dependency submission and scan for AI applications.
 
 Not every feature exists on every plan. Public repositories get the security
 features for free; private ones need GitHub Secret Protection / Code Security
@@ -43,7 +49,7 @@ from typing import Any
 
 RULES_DIR = Path(__file__).resolve().parent.parent / ".github" / "rulesets"
 DEFAULT_BRANCH_MARKER = "~DEFAULT_BRANCH"
-# Job names from .github/workflows/00_security_checks.yml. Rename them together.
+# Job names from .github/workflows/02_security_checks.yml. Rename them together.
 DEFAULT_CHECKS = (
     "Scan for committed secrets",
     "Audit locked dependencies",
@@ -62,6 +68,17 @@ SECURITY_FEATURES = (
     "secret_scanning_push_protection",
     "secret_scanning_non_provider_patterns",
     "secret_scanning_ai_detection",
+)
+# Fields of /repos/{repo}/code-scanning/ai-scan.
+AI_SCAN_SETTINGS = {
+    "pr_scan": "AI Scan for pull requests",
+    "repository_scan": "AI Scan for repositories",
+}
+# Settings with no REST API yet (Settings → Advanced Security).
+MANUAL_SETTINGS = (
+    "Dependabot → Malware alerts: On",
+    "Dependency graph → Automatic dependency submission: Enabled",
+    "AI Scan → Scan for AI applications: On",
 )
 
 
@@ -165,7 +182,7 @@ def build_ruleset(
     branch: str,
     bypass: list[dict[str, Any]],
     checks: list[str],
-    codeql_configured: bool,
+    code_scanning: bool,
 ) -> dict[str, Any]:
     ruleset: dict[str, Any] = {**template, "bypass_actors": bypass}
     ref_name = ruleset.get("conditions", {}).get("ref_name", {})
@@ -196,7 +213,7 @@ def build_ruleset(
                 },
             }
         )
-    if codeql_configured:
+    if code_scanning:
         rules.append(
             {
                 "type": "code_scanning",
@@ -222,13 +239,36 @@ def list_rulesets(gh: Gh, repo: str) -> list[dict[str, Any]]:
         return []  # Rulesets are not available; the create calls report it.
 
 
-def codeql_state(gh: Gh, repo: str) -> str:
+def codeql_default_setup_state(gh: Gh, repo: str) -> str:
     try:
         return (gh.api(f"repos/{repo}/code-scanning/default-setup") or {}).get(
             "state", "unavailable"
         )
     except GhError:
         return "unavailable"
+
+
+def code_scanning_available(gh: Gh, repo: str) -> bool:
+    """Public repositories have code scanning; private ones need Code Security.
+
+    Without it the CodeQL workflow cannot upload results, and a CodeQL merge gate
+    would block every pull request.
+    """
+    info = gh.api(f"repos/{repo}")
+    if info.get("visibility") == "public":
+        return True
+    security = info.get("security_and_analysis") or {}
+    return any(
+        (security.get(feature) or {}).get("status") == "enabled"
+        for feature in ("advanced_security", "code_security")
+    )
+
+
+def ai_scan_state(gh: Gh, repo: str) -> dict[str, Any]:
+    try:
+        return gh.api(f"repos/{repo}/code-scanning/ai-scan") or {}
+    except GhError:
+        return {}
 
 
 def apply_repository_settings(gh: Gh, repo: str, report: Reporter) -> None:
@@ -274,14 +314,25 @@ def apply_security(gh: Gh, repo: str, report: Reporter) -> None:
         "private vulnerability reporting",
         lambda: gh.api(f"repos/{repo}/private-vulnerability-reporting", "PUT"),
     )
-    report.attempt(
-        "CodeQL default setup",
-        lambda: gh.api(
-            f"repos/{repo}/code-scanning/default-setup",
-            "PATCH",
-            {"state": "configured", "query_suite": "default"},
-        ),
-    )
+    # One setting per call: a blocked change makes GitHub reject the whole request.
+    for field, label in AI_SCAN_SETTINGS.items():
+        report.attempt(
+            label,
+            lambda field=field: gh.api(
+                f"repos/{repo}/code-scanning/ai-scan", "PATCH", {field: "enabled"}
+            ),
+        )
+    # .github/workflows/03_codeql.yml is the CodeQL advanced setup. GitHub rejects
+    # its results while default setup is on, so turn default setup off.
+    if codeql_default_setup_state(gh, repo) == "configured":
+        report.attempt(
+            "CodeQL default setup off (the workflow runs CodeQL)",
+            lambda: gh.api(
+                f"repos/{repo}/code-scanning/default-setup",
+                "PATCH",
+                {"state": "not-configured"},
+            ),
+        )
 
 
 def apply_rulesets(
@@ -290,7 +341,7 @@ def apply_rulesets(
     repo_info: dict[str, Any],
     *,
     checks: list[str],
-    codeql: str,
+    code_scanning: bool,
     report: Reporter,
 ) -> None:
     print("--> Rulesets")
@@ -304,9 +355,7 @@ def apply_rulesets(
     default_branch_ruleset = False
     for file in sorted(RULES_DIR.glob("*.json")):
         template = json.loads(file.read_text(encoding="utf-8"))
-        payload = build_ruleset(
-            template, branch, bypass, checks, codeql == "configured"
-        )
+        payload = build_ruleset(template, branch, bypass, checks, code_scanning)
         name = payload["name"]
         ruleset_id = existing.get(name)
         if ruleset_id is not None:
@@ -337,18 +386,28 @@ def apply_rulesets(
 
 
 def print_result(
-    gh: Gh, repo: str, checks: list[str], codeql: str, report: Reporter
+    gh: Gh, repo: str, checks: list[str], code_scanning: bool, report: Reporter
 ) -> None:
     print("==> Result")
     security = gh.api(f"repos/{repo}").get("security_and_analysis") or {}
     for key, value in security.items():
         status = value.get("status", value) if isinstance(value, dict) else value
         print(f"  {key}: {status}")
-    print(f"  codeql_default_setup: {codeql}")
+    ai_scan = ai_scan_state(gh, repo)
+    for field in AI_SCAN_SETTINGS:
+        print(f"  ai_scan_{field}: {ai_scan.get(field, 'unavailable')}")
+    print(f"  codeql_default_setup: {codeql_default_setup_state(gh, repo)}")
+    print(f"  codeql_merge_gate: {'on' if code_scanning else 'off'}")
     names = [ruleset["name"] for ruleset in list_rulesets(gh, repo)]
     print(f"  rulesets: {', '.join(names)}")
     if checks:
         print(f"  required checks: {','.join(checks)}")
+    print(
+        "Turn these on by hand (no API) at "
+        f"https://github.com/{repo}/settings/security_analysis:"
+    )
+    for setting in MANUAL_SETTINGS:
+        print(f"  - {setting}")
     if report.unavailable:
         print(
             f"Not applied on this plan or repository: {','.join(report.unavailable)}."
@@ -393,11 +452,16 @@ def main() -> int:
         report = Reporter()
         apply_repository_settings(gh, repo, report)
         apply_security(gh, repo, report)
-        codeql = codeql_state(gh, repo)
+        code_scanning = code_scanning_available(gh, repo)
         apply_rulesets(
-            gh, repo, repo_info, checks=args.checks, codeql=codeql, report=report
+            gh,
+            repo,
+            repo_info,
+            checks=args.checks,
+            code_scanning=code_scanning,
+            report=report,
         )
-        print_result(gh, repo, args.checks, codeql, report)
+        print_result(gh, repo, args.checks, code_scanning, report)
     except GhError as err:
         print(f"Error: {err}", file=sys.stderr)
         return 1
