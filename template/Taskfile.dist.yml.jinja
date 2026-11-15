@@ -70,8 +70,15 @@ silent: true
 vars:
   # Derived from the wheel package declared in pyproject.toml, so it always
   # matches the real package name (no template substitution needed here).
+  # Shell built-ins only (no awk/grep/sed), so it also runs on Windows, where
+  # Task's shell has just a small set of core utils.
   PROJECT:
-    sh: awk -F'"' '/^packages = \[/{print $2}' pyproject.toml
+    sh: |
+      while IFS= read -r line; do
+        case "$line" in
+          'packages = ['*) p="${line#*\"}"; printf '%s' "${p%%\"*}"; break ;;
+        esac
+      done < pyproject.toml
 
 tasks:
   default:
@@ -85,13 +92,16 @@ tasks:
   init:
     desc: Initialize project (install python, sync deps, install pre-commit hooks{% endraw %}{% if coding_agents %}, agent plugins{% endif %}{% raw %})
     vars:
+      # The version Copier pinned in .python-version. Trailing junk such as a
+      # Windows "\r" is cut off, so only digits and dots are kept. read also
+      # fails on a file without a final newline, so only an empty v is an error.
       PYTHON_VERSION:
         sh: |
-          grep 'requires-python' pyproject.toml | sed -E 's/.*>=?([0-9]+\.[0-9]+).*/\1/'
+          IFS= read -r v < .python-version || [ -n "$v" ]
+          printf '%s' "${v%%[!0-9.]*}"
     cmds:
       - echo "🐍 Installing Python {{.PYTHON_VERSION}}..."
       - uv python install {{.PYTHON_VERSION}}
-      - uv python pin {{.PYTHON_VERSION}}
       - echo "📦 Syncing dependencies..."
       - task: sync
       - git rev-parse --git-dir >/dev/null 2>&1 || git init -b main
@@ -121,8 +131,8 @@ tasks:
       - |
         for f in components/*/pyproject.toml; do
           [ -f "$f" ] || continue
-          echo "⬆️  Upgrading $(dirname "$f")/uv.lock..."
-          uv lock --upgrade --project "$(dirname "$f")"
+          echo "⬆️  Upgrading ${f%/*}/uv.lock..."
+          uv lock --upgrade --project "${f%/*}"
         done
       - echo "📦 Syncing dependencies..."
       - task: sync
@@ -135,6 +145,8 @@ tasks:
     ignore_error: true
     cmds:
       - rm -rf __pycache__/ .cache/ .state/ .web/ dist/ build/ coverage.xml .coverage
-      - find . -type d -name "__pycache__" -exec rm -rf {} +
-      - find . -type f -name "*.pyc" -delete
+      # Plain -type/-name only: Task's built-in find on Windows has no -exec or -delete.
+      # A read loop (not xargs) keeps paths with spaces intact.
+      - find . -type d -name "__pycache__" | while IFS= read -r d; do rm -rf "$d"; done
+      - find . -type f -name "*.pyc" | while IFS= read -r f; do rm -f "$f"; done
 {%- endraw %}

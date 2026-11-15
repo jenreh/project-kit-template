@@ -49,5 +49,5 @@ tasks:
         for f in components/*/pyproject.toml; do
           [ -f "$f" ] || continue
           echo "Auditing $f"
-          uv audit --frozen --project "$(dirname "$f")"
+          uv audit --frozen --project "${f%/*}"
         done
