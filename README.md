@@ -7,7 +7,7 @@ with one **updateable** template (`copier update`).
 
 ```bash
 uv tool install copier
-copier copy --trust gh:jenreh/kit-template my-project
+copier copy --trust gh:jenreh/project-kit-template my-project
 cd my-project && task init
 ```
 
@@ -22,11 +22,11 @@ Drop this in your `~/.zshrc` so `projectkit my-project` scaffolds from this temp
 
 ```zsh
 projectkit() {
-  local default="gh:jenreh/kit-template"
+  local default="gh:jenreh/project-kit-template"
   local tmpl
 
   case "$1" in
-#    py)  tmpl="gh:jenreh/kit-template"; shift ;;
+#    py)  tmpl="gh:jenreh/project-kit-template"; shift ;;
 #    web) tmpl="gh:jenreh/web-template"; shift ;;
     gh:*|git+*|https://*|/*|.*)         # explicit ref → consume it
          tmpl="$1"; shift ;;
